@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "script_application_samples",
+  "cases": [
+    {"label": "weigh-basic", "args": ["weigh", "10", "5"], "expect": {"returncode": 0, "stdout": "weigh -> 40\n"}},
+    {"label": "weigh-zero", "args": ["weigh", "0", "0"], "expect": {"returncode": 0, "stdout": "weigh -> 0\n"}},
+    {"label": "weigh-negative-base", "args": ["weigh", "-4", "2"], "expect": {"returncode": 0, "stdout": "weigh -> 8\n"}},
+    {"label": "weigh-negative-factor", "args": ["weigh", "7", "-3"], "expect": {"returncode": 0, "stdout": "weigh -> -11\n"}},
+    {"label": "combine-positive", "args": ["combine", "5", "2"], "expect": {"returncode": 0, "stdout": "combine -> 17\n"}},
+    {"label": "combine-negative-branch", "args": ["combine", "-5", "2"], "expect": {"returncode": 0, "stdout": "combine -> 7\n"}},
+    {"label": "combine-zero", "args": ["combine", "0", "0"], "expect": {"returncode": 0, "stdout": "combine -> 0\n"}},
+    {"label": "atleast-greater", "args": ["atleast", "5", "2"], "expect": {"returncode": 0, "stdout": "atleast -> true\n"}},
+    {"label": "atleast-less", "args": ["atleast", "2", "5"], "expect": {"returncode": 0, "stdout": "atleast -> false\n"}},
+    {"label": "atleast-equal", "args": ["atleast", "3", "3"], "expect": {"returncode": 0, "stdout": "atleast -> true\n"}},
+    {"label": "name-weigh", "args": ["name", "weigh"], "expect": {"returncode": 0, "stdout": "weighted-accumulator\n"}},
+    {"label": "usage-no-args", "args": [], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-unknown-op", "args": ["bogus", "1", "2"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-bad-arity", "args": ["weigh", "1"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-bad-operand", "args": ["weigh", "x", "3"], "expect": {"returncode": 2, "stdout": ""}}
+  ]
+}

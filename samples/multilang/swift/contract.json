@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "library_name": "protected",
+  "functions": [
+    {"name": "swift_score", "return_type": "u64", "parameters": [{"name": "x", "type": "u64"}, {"name": "y", "type": "u64"}]},
+    {"name": "swift_signed", "return_type": "i64", "parameters": [{"name": "x", "type": "i64"}, {"name": "y", "type": "i64"}]},
+    {"name": "swift_unsigned32", "return_type": "u32", "parameters": [{"name": "x", "type": "u32"}, {"name": "y", "type": "u32"}]},
+    {"name": "swift_signed32", "return_type": "i32", "parameters": [{"name": "x", "type": "i32"}, {"name": "y", "type": "i32"}]}
+  ]
+}

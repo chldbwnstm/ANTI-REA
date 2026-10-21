@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "kotlin-bytecode-core",
+  "language": "kotlin",
+  "sources": ["Algorithms.kt"],
+  "methods": [
+    {"class": "sample.KotlinAlgorithms", "name": "fold", "descriptor": "(II)I", "export": "kotlin_fold"},
+    {"class": "sample.KotlinAlgorithms", "name": "wide", "descriptor": "(JJ)J", "export": "kotlin_wide"},
+    {"class": "sample.KotlinAlgorithms", "name": "narrow", "descriptor": "(JI)I", "export": "kotlin_narrow"}
+  ]
+}

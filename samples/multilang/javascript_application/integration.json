@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "kind": "script_application_integration",
+  "language": "javascript",
+  "protected_source": "core.js",
+  "entrypoint": "app.js",
+  "application_files": ["app.js", "core.js", "format.js", "labels.json"]
+}

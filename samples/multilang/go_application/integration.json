@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "kind": "native_application_integration",
+  "language": "go",
+  "application_sources": ["main.go"]
+}

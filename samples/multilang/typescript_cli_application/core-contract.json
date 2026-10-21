@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "kind": "javascript_scalar_samples",
+  "functions": [
+    {"name": "scaled", "parameters": [
+      {"name": "base", "type": "bigint", "minimum": "-1000000000", "maximum": "1000000000"},
+      {"name": "factor", "type": "bigint", "minimum": "-1000000000", "maximum": "1000000000"}]},
+    {"name": "fold", "parameters": [
+      {"name": "x", "type": "bigint", "minimum": "-1000000000", "maximum": "1000000000"},
+      {"name": "y", "type": "bigint", "minimum": "-1000000000", "maximum": "1000000000"}]},
+    {"name": "below", "parameters": [
+      {"name": "x", "type": "bigint", "minimum": "-1000000000", "maximum": "1000000000"},
+      {"name": "y", "type": "bigint", "minimum": "-1000000000", "maximum": "1000000000"}]}
+  ]
+}

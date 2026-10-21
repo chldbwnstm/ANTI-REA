@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "kind": "jvm_application_integration",
+  "language": "kotlin",
+  "application_sources": ["App.kt"],
+  "main_class": "sample.AppKt"
+}

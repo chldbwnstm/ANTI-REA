@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "description": "Public synthetic scoring fixture. Expand from the mix function to its callers and their semantic helpers before optimization.",
+  "core_roots": ["context_mix"],
+  "sensitive_functions": [],
+  "public_presentation": {
+    "context_public": "Public C-ABI entry forwards the same ordered scalar arguments and returns the context_score result unchanged. It has no scoring decisions or constants."
+  },
+  "entry_points": ["context_public"],
+  "max_functions": 16
+}

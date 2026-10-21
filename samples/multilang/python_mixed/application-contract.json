@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "python_mixed_module_application_samples",
+  "module": "quote_app.pricing",
+  "entrypoints": [
+    {
+      "name": "quote_cents",
+      "parameters": [
+        {"name": "unit_cents", "minimum": 0, "maximum": 100000000},
+        {"name": "quantity", "minimum": 0, "maximum": 1000},
+        {"name": "discount_basis_points", "minimum": 0, "maximum": 10000}
+      ]
+    }
+  ],
+  "preserved_entrypoints": []
+}

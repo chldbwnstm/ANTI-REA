@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "python_mixed_module_application_samples",
+  "module": "ledger_app.billing",
+  "entrypoints": [
+    {
+      "name": "net_settlement",
+      "parameters": [
+        {"name": "gross_cents", "minimum": 0, "maximum": 100000000},
+        {"name": "item_count", "minimum": 0, "maximum": 1000},
+        {"name": "fee_bps", "minimum": 0, "maximum": 10000}
+      ]
+    }
+  ],
+  "preserved_entrypoints": []
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "native_application_samples",
+  "cases": [
+    {"label": "fold-normal", "args": ["fold", "7", "3"], "expect": {"returncode": 0, "stdout": "-619489996\n"}},
+    {"label": "fold-zero", "args": ["fold", "0", "0"], "expect": {"returncode": 0, "stdout": "-1626640822\n"}},
+    {"label": "fold-negative", "args": ["fold", "-5", "-9"], "expect": {"returncode": 0, "stdout": "-1897094753\n"}},
+    {"label": "fold-int32-edges", "args": ["fold", "2147483647", "-2147483648"], "expect": {"returncode": 0, "stdout": "536112820\n"}},
+    {"label": "wide-zero-count", "args": ["wide", "100", "0"], "expect": {"returncode": 0, "stdout": "-935763525796164244\n"}},
+    {"label": "wide-negative", "args": ["wide", "-3", "5"], "expect": {"returncode": 0, "stdout": "8882510061154469656\n"}},
+    {"label": "wide-count-63", "args": ["wide", "1", "63"], "expect": {"returncode": 0, "stdout": "6262535349803285907\n"}},
+    {"label": "mix-zero", "args": ["mix", "0", "0"], "expect": {"returncode": 0, "stdout": "16129923056616024046\n"}},
+    {"label": "mix-alternating", "args": ["mix", "2863311530", "1431655765"], "expect": {"returncode": 0, "stdout": "7943531372410221122\n"}},
+    {"label": "mix-uint32-max", "args": ["mix", "4294967295", "4294967295"], "expect": {"returncode": 0, "stdout": "16724492237441453570\n"}},
+    {"label": "narrow-truncate", "args": ["narrow", "5000000000", "7"], "expect": {"returncode": 0, "stdout": "705032711\n"}},
+    {"label": "narrow-b-zero", "args": ["narrow", "-1", "0"], "expect": {"returncode": 0, "stdout": "4294967295\n"}},
+    {"label": "narrow-negative-x", "args": ["narrow", "-12345", "9"], "expect": {"returncode": 0, "stdout": "4294954942\n"}},
+    {"label": "usage-arity", "args": ["fold", "7"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-unknown", "args": ["bogus", "1", "2"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-noargs", "args": [], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-bad-operand", "args": ["fold", "x", "3"], "expect": {"returncode": 2, "stdout": ""}}
+  ]
+}

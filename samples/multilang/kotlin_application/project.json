@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "kotlin-app-core",
+  "language": "kotlin",
+  "sources": ["Core.kt"],
+  "methods": [
+    {"class": "sample.Core", "name": "scramble", "descriptor": "(II)I", "export": "kotlin_scramble"},
+    {"class": "sample.Core", "name": "blend", "descriptor": "(JJ)J", "export": "kotlin_blend"},
+    {"class": "sample.Core", "name": "narrow", "descriptor": "(JI)I", "export": "kotlin_narrow"}
+  ]
+}

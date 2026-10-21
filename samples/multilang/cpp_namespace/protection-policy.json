@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "core_roots": ["public_score"],
+  "sensitive_functions": [],
+  "public_presentation": {},
+  "max_functions": 64,
+  "description": "Expanded caller/callee closure must discover the actual compiler-emitted C++ overload/helper symbols. No demangled or guessed selector is used."
+}

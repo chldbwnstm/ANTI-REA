@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "python-ledger-app",
+  "language": "python",
+  "sources": ["ledger_app/billing.py"],
+  "functions": ["net_settlement"],
+  "protection_mode": "mixed_module"
+}

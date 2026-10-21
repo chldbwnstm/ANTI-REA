@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "java-bytecode-core",
+  "language": "java",
+  "sources": ["Algorithms.java"],
+  "methods": [
+    {"class": "sample.Algorithms", "name": "fold", "descriptor": "(II)I", "export": "java_fold"},
+    {"class": "sample.Algorithms", "name": "wide", "descriptor": "(JJ)J", "export": "java_wide"},
+    {"class": "sample.Algorithms", "name": "narrow", "descriptor": "(JI)I", "export": "java_narrow"}
+  ]
+}

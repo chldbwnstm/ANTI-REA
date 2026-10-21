@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "kind": "jvm_application_samples",
+  "cases": [
+    {"label": "one-round", "args": ["2", "1"], "expect": {"returncode": 0, "stdout": "195\n"}},
+    {"label": "zero-rounds", "args": ["5", "0"], "expect": {"returncode": 0, "stdout": "0\n"}},
+    {"label": "two-rounds", "args": ["2", "2"], "expect": {"returncode": 0, "stdout": "8524\n"}},
+    {"label": "three-rounds", "args": ["2", "3"], "expect": {"returncode": 0, "stdout": "286752\n"}},
+    {"label": "negative-seed", "args": ["-3", "2"], "expect": {"returncode": 0, "stdout": "4500\n"}},
+    {"label": "int-min-seed", "args": ["-2147483648", "2"], "expect": {"returncode": 0, "stdout": "-68719473412\n"}},
+    {"label": "int-max-seed", "args": ["2147483647", "3"], "expect": {"returncode": 0, "stdout": "-2132451227355\n"}},
+    {"label": "larger", "args": ["100", "4"], "expect": {"returncode": 0, "stdout": "259783170\n"}},
+    {"label": "usage-missing-arg", "args": ["5"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-too-many-args", "args": ["5", "3", "9"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "non-integer-seed", "args": ["abc", "1"], "expect": {"returncode": 1, "stdout": ""}}
+  ]
+}

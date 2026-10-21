@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "swift-app-core",
+  "language": "swift",
+  "sources": ["core.swift"],
+  "functions": ["swift_score", "swift_signed", "swift_unsigned32", "swift_signed32"]
+}

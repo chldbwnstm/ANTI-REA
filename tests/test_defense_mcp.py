@@ -15,6 +15,8 @@ from antirea import defense_mcp
 
 
 TOOLS = {
+    "protection_languages", "protection_source_plan", "protection_source_build", "protection_bindings",
+    "protection_source_validate", "protection_source_integrate",
     "protection_providers", "protection_doctor", "protection_plan",
     "protection_protect", "protection_job",
     "protection_generate_project", "protection_benchmark", "protection_auto_protect",
@@ -184,7 +186,8 @@ class DefenseBridgeTests(unittest.TestCase):
         response = self.bridge.handle(request("tools/list"))
         tools = response["result"]["tools"]
         self.assertEqual({item["name"] for item in tools}, TOOLS)
-        self.assertEqual(len(tools), 8)
+        # The explicit name set is authoritative; the length also rejects duplicates.
+        self.assertEqual(len(tools), len(TOOLS))
         for tool in tools:
             self.assertIsInstance(tool["description"], str)
             self.assertEqual(tool["inputSchema"]["type"], "object")

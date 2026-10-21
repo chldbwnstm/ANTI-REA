@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "kind": "javascript_scalar_samples",
+  "functions": [
+    {"name": "bigintScore", "parameters": [
+      {"name": "x", "type": "bigint", "minimum": "-1267650600228229401496703205376", "maximum": "1267650600228229401496703205376"},
+      {"name": "y", "type": "bigint", "minimum": "-1000", "maximum": "1000"}]},
+    {"name": "bigintErrors", "parameters": [
+      {"name": "x", "type": "bigint", "minimum": "-1267650600228229401496703205376", "maximum": "1267650600228229401496703205376"},
+      {"name": "y", "type": "bigint", "minimum": "-12", "maximum": "12"}]},
+    {"name": "booleanGate", "parameters": [
+      {"name": "x", "type": "boolean"},
+      {"name": "y", "type": "boolean"}]}
+  ]
+}

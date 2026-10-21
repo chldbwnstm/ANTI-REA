@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "kind": "javascript_scalar_samples",
+  "functions": [
+    {"name": "numberScore", "parameters": [
+      {"name": "x", "type": "number", "minimum": -1000000, "maximum": 1000000},
+      {"name": "y", "type": "number", "minimum": -1000000, "maximum": 1000000}]},
+    {"name": "numericEdges", "parameters": [
+      {"name": "x", "type": "number", "minimum": -1000000, "maximum": 1000000},
+      {"name": "y", "type": "number", "minimum": -1000000, "maximum": 1000000}]},
+    {"name": "scalarCompare", "parameters": [
+      {"name": "x", "type": "number", "minimum": -1000000, "maximum": 1000000},
+      {"name": "y", "type": "number", "minimum": -1000000, "maximum": 1000000}]}
+  ]
+}

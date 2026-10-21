@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "library_name": "sampleops",
+  "calling_convention": "cdecl",
+  "functions": [
+    {"name": "cs_transform", "return_type": "i32", "parameters": [
+      {"name": "a0", "type": "i32"}, {"name": "a1", "type": "i32"}
+    ]},
+    {"name": "cs_accumulate", "return_type": "i64", "parameters": [
+      {"name": "a0", "type": "i64"}, {"name": "a1", "type": "i64"}
+    ]},
+    {"name": "cs_fold_helper", "return_type": "u32", "parameters": [
+      {"name": "a0", "type": "u32"}, {"name": "a1", "type": "u32"}
+    ]}
+  ]
+}

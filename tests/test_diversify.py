@@ -1,5 +1,13 @@
 """Private build-format transformation tests; no attacks or model execution."""
 
+import ctypes
+import copy
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from antirea import diversify as d
@@ -9,6 +17,9 @@ TABLE = {0x02: "OP_PUSH_IMM32", 0x04: "OP_PUSH_REG", 0x05: "OP_POP_REG",
          0x10: "OP_ADD", 0x40: "OP_JMP", 0x44: "OP_RET", 0x60: "OP_ZEXT",
          0x70: "OP_LOAD_ARG", 0xff: "OP_NOP"}
 KEY = 0x0123456789abcdef
+ROOT = Path(__file__).resolve().parents[1]
+CLANG = ROOT / ".tools/clang+llvm-22.1.0-x86_64-pc-windows-msvc/bin/clang.exe"
+RUNTIME = ROOT / ".tools/kagura/runtime/core/vm_interpreter.c"
 
 
 def stock(data, key=KEY):
@@ -38,6 +49,13 @@ def ir_fixture(data, key=KEY):
             f'  %r = call i64 @kagura_vm_execute(ptr @kagura_vm_bc_1, i32 {len(data)}, ptr null, i32 0, ptr null, i32 0, i64 %key)\n'
             '  ret i64 %r\n}\n'
             'declare i64 @kagura_vm_execute(ptr, i32, ptr, i32, ptr, i32, i64)\n')
+
+
+def two_function_ir(first_data, second_data=None):
+    second = ir_fixture(first_data if second_data is None else second_data)
+    second = second.replace('_bc_1', '_bc_22').replace('_key_1', '_key_22').replace('@antirea_score', '@antirea_other')
+    second = second[:second.index('declare i64')]
+    return ir_fixture(first_data) + second
 
 
 def read_instruction_operands(decoded, offset, widths, key, params):
@@ -210,10 +228,141 @@ class DiversificationTests(unittest.TestCase):
         second = second[:second.index("declare i64")]
         transformed, manifest = d.transform_ir(first + second, TABLE, 71)
         self.assertEqual([x["global"] for x in manifest["blobs"]], ["kagura_vm_bc_1", "kagura_vm_bc_22"])
-        self.assertEqual(transformed.count("call i64 @" + manifest["dispatcher_symbol"]), 2)
+        self.assertEqual(manifest["engine_mode"], "per_function_indirect")
+        self.assertEqual(len(d.inspect_vm_bindings(transformed, manifest)), 2)
         for record in manifest["blobs"]:
             self.assertIn(f'@{record["global"]} = private constant [{record["encoded_bytes"]} x i8]', transformed)
             self.assertIn(f'ptr @{record["global"]}, i32 {record["encoded_bytes"]}', transformed)
+
+    def test_multi_vm_distinct_contracts_same_input_and_reproducible_seed(self):
+        source = two_function_ir(stock(self.RR))
+        ir, manifest = d.transform_ir(source, TABLE, 1729)
+        again, repeated = d.transform_ir(source, TABLE, 1729)
+        self.assertEqual((ir, manifest), (again, repeated))
+        first, second = manifest['engines']
+        self.assertNotEqual(first['parameters']['tokens'], second['parameters']['tokens'])
+        for field in ('multiply', 'add', 'mix', 'operand_multiply', 'operand_add'):
+            self.assertNotEqual(first['parameters'][field], second['parameters'][field])
+        self.assertNotEqual(first['codec_sha256'], second['codec_sha256'])
+        self.assertNotEqual(manifest['blobs'][0]['encoded_sha256'], manifest['blobs'][1]['encoded_sha256'])
+        self.assertEqual(manifest['blobs'][0]['original_sha256'], manifest['blobs'][1]['original_sha256'])
+        self.assertEqual(manifest['hardening_capabilities']['independent_vm_parameter_sets'], 2)
+        self.assertFalse(manifest['hardening_capabilities']['layers']['multi_vm_indirect_dispatch']['source_emitted'])
+        self.assertEqual(ir.count('load volatile ptr'), 2)
+        self.assertEqual(ir.count('call i64 %antirea_vm_target_'), 2)
+        self.assertNotIn('call i64 @antirea_dispatch_', ir)
+
+    def test_single_or_disabled_multi_vm_preserves_legacy_direct_shape(self):
+        for source, options, count in ((ir_fixture(stock(self.RR)), {}, 1),
+                                       (two_function_ir(stock(self.RR)), {'enable_hardening': False}, 2),
+                                       (two_function_ir(stock(self.RR)), {'enabled_layers': []}, 2)):
+            with self.subTest(options=options, count=count):
+                ir, manifest = d.transform_ir(source, TABLE, 1, **options)
+                self.assertNotIn('engines', manifest)
+                self.assertNotIn('engine_mode', manifest)
+                self.assertEqual(ir.count('call i64 @' + manifest['dispatcher_symbol']), count)
+                self.assertEqual(manifest['hardening_capabilities']['independent_vm_parameter_sets'], 1)
+
+    def test_transform_disabled_hardening_still_validates_explicit_selection(self):
+        for source in (ir_fixture(stock(self.RR)), two_function_ir(stock(self.RR))):
+            for layers in (['anti_tamper'], ['multi_vm_indirect_dispatch'], ['unknown'], 'anti_tamper', [1]):
+                with self.subTest(layers=layers), self.assertRaises(ValueError):
+                    d.transform_ir(source, TABLE, 17, enable_hardening=False, enabled_layers=layers)
+            disabled, _ = d.transform_ir(source, TABLE, 17, enable_hardening=False)
+            explicit_empty, _ = d.transform_ir(source, TABLE, 17, enable_hardening=False, enabled_layers=[])
+            self.assertEqual(disabled, explicit_empty)
+
+    @unittest.skipUnless(RUNTIME.exists(), 'pinned runtime needed for generate selection regression')
+    def test_generate_rejects_conflicting_selection_before_writing_artifacts(self):
+        opcodes = ROOT / '.tools/kagura/include/kagura/VMOpcodes.def'
+        with tempfile.TemporaryDirectory(prefix='antirea-selection-test-') as temporary:
+            base = Path(temporary)
+            input_ir = base / 'input.ll'
+            input_ir.write_text(ir_fixture(stock(self.RR)), encoding='utf-8')
+            output = base / 'generated'
+            with self.assertRaisesRegex(ValueError, 'conflicts'):
+                d.generate(input_ir, RUNTIME, opcodes, output, 17,
+                           enable_hardening=False, enabled_layers=['anti_tamper'])
+            self.assertFalse(output.exists())
+
+    def test_multi_vm_keeps_trivial_function_without_claiming_fusion_there(self):
+        source = two_function_ir(stock(self.RR), stock(bytes([0x70, 0, 0x44])))
+        ir, manifest = d.transform_ir(source, TABLE, 19)
+        self.assertEqual(len(d.inspect_vm_bindings(ir, manifest)), 2)
+        self.assertEqual(manifest['blobs'][1]['fused_groups'], 0)
+        self.assertGreater(manifest['blobs'][0]['fused_groups'], 0)
+
+    def test_multi_vm_binding_rejects_changed_slot_call_blob_and_codec(self):
+        ir, manifest = d.transform_ir(two_function_ir(stock(self.RR)), TABLE, 71)
+        first, second = manifest['engines']
+        broken = [ir.replace('load volatile ptr', 'load ptr', 1),
+                  ir.replace('ptr @' + first['dispatch_slot'], 'ptr @' + second['dispatch_slot'], 1),
+                  ir.replace('global ptr @' + first['dispatcher_symbol'], 'global ptr @' + second['dispatcher_symbol'], 1),
+                  ir.replace('i32 ' + str(manifest['blobs'][0]['encoded_bytes']) + ',', 'i32 999,', 1),
+                  ir.replace(d.llvm_string(d.llvm_bytes(d._BLOB.search(ir).group(4))), r'\00', 1)]
+        for altered in broken:
+            with self.subTest(altered=altered[-150:]), self.assertRaises(ValueError):
+                d.inspect_vm_bindings(altered, manifest)
+        for field in ('parameters', 'dispatch_slot', 'function', 'blob_global', 'dispatcher_symbol'):
+            changed = copy.deepcopy(manifest)
+            changed['engines'][1][field] = changed['engines'][0][field]
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                d.inspect_vm_bindings(ir, changed)
+
+    @unittest.skipUnless(RUNTIME.exists(), 'pinned runtime needed for multi-engine emission')
+    def test_multi_vm_runtime_has_namespaced_helpers_and_per_engine_checksum(self):
+        ir, manifest = d.transform_ir(two_function_ir(stock(self.RR)), TABLE, 71)
+        runtime = d.runtime_for_manifest(RUNTIME.read_text(encoding='utf-8'), manifest)
+        for engine in manifest['engines']:
+            self.assertEqual(runtime.count('uint64_t ' + engine['dispatcher_symbol'] + '('), 1)
+            self.assertEqual(runtime.count(engine['integrity_checker_symbol'] + '('), 2)
+            self.assertIn(engine['namespace_prefix'] + 'bc_require', runtime)
+            self.assertIn(engine['namespace_prefix'] + 'VMFrame', runtime)
+            self.assertEqual(len(engine['parameters']['hardening']['bytecode_integrity']), 1)
+        self.assertNotIn('uint64_t kagura_vm_execute(', runtime)
+        self.assertNotIn('} VMFrame;', runtime)
+        from antirea.hardening import hardening_capabilities
+        caps = hardening_capabilities(manifest['parameters']['hardening'], runtime_source=runtime,
+                                      core_ir=ir, blob_count=2, vm_engines=manifest['engines'])
+        self.assertTrue(caps['layers']['multi_vm_indirect_dispatch']['source_emitted'])
+        self.assertEqual(caps['verified_retained_components'], [])
+
+    @unittest.skipUnless(CLANG.exists() and RUNTIME.exists(), 'portable Clang and pinned runtime required')
+    def test_compiled_multi_vm_retains_indirect_calls_and_each_checksum(self):
+        from antirea.hardening import inspect_hardening_artifact
+        original = two_function_ir(stock(self.RR)).replace('i64 %key)', f'i64 {KEY})')
+        core, manifest = d.transform_ir(original, TABLE, 17,
+                                        enabled_layers=['multi_vm_indirect_dispatch', 'anti_tamper'])
+        runtime = d.runtime_for_manifest(RUNTIME.read_text(encoding='utf-8'), manifest)
+        # Header-independent compile: use the same generated runtime, supplying
+        # only standard typedefs/prototypes so the test needs no installed SDK.
+        prelude = ('typedef unsigned char uint8_t; typedef unsigned short uint16_t; '
+                   'typedef unsigned int uint32_t; typedef unsigned long long uint64_t; '
+                   'typedef int int32_t; typedef long long int64_t; '
+                   'typedef unsigned long long uintptr_t; typedef unsigned long long size_t; '
+                   'void abort(void); void *memset(void *,int,size_t); void *memcpy(void *,const void *,size_t);\n')
+        runtime = prelude + re.sub(r'(?m)^#include[^\n]*', '', runtime)
+        compiled = []
+        for language, source in (('c', runtime), ('ir', core)):
+            result = subprocess.run([str(CLANG), '-O1', '-fno-inline', '-S', '-emit-llvm',
+                                     '-x', language, '-', '-o', '-'], input=source,
+                                    text=True, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            compiled.append(result.stdout)
+        runtime_ir, core_ir = compiled
+        self.assertEqual(len(d.inspect_vm_bindings(core_ir, manifest)), 2)
+        evidence = inspect_hardening_artifact(manifest, runtime_ir, core_ir)
+        self.assertTrue(evidence['layers']['multi_vm_indirect_dispatch']['runtime_component_retained'])
+        self.assertTrue(evidence['layers']['anti_tamper']['runtime_component_retained'])
+        checks = evidence['layers']['anti_tamper']['retained_ir_evidence']['engines']
+        self.assertEqual(len(checks), 2)
+        self.assertTrue(all(item['observed'] for item in checks))
+        self.assertEqual(evidence['external_resistance'], 'not_evaluated')
+        second = manifest['engines'][1]
+        changed = runtime_ir.replace('@' + second['integrity_checker_symbol'] + '(', '@missing_checksum(')
+        self.assertFalse(inspect_hardening_artifact(manifest, changed, core_ir)['layers']['anti_tamper']['runtime_component_retained'])
+        altered = core_ir.replace('load volatile ptr', 'load ptr', 1)
+        self.assertFalse(inspect_hardening_artifact(manifest, runtime_ir, altered)['layers']['multi_vm_indirect_dispatch']['runtime_component_retained'])
 
     def test_missing_or_duplicate_wrapper_call_refuses_to_transform(self):
         original = ir_fixture(stock(self.RR))
@@ -246,6 +395,7 @@ static inline int64_t vm_sext(uint64_t v, unsigned w) { return v; }
 static inline unsigned vm_shamt(uint64_t v, unsigned w) { return 0; }
 uint64_t kagura_vm_execute(void) {
     VMFrame f;
+    f.key     = key;
     f.pc      = 0;
     uint8_t op = bc_u8(&f);
         switch (op) {
@@ -271,7 +421,135 @@ uint64_t kagura_vm_execute(void) {
         self.assertIn("static inline unsigned vm_width(", generated)
         for name in d.INTEGRATED_HELPERS:
             self.assertRegex(generated, r"always_inline\)\) inline \w+ vm_" + name + r"\(")
-        self.assertEqual(generated.count("static __attribute__((always_inline)) inline "), 9)
+        self.assertEqual(generated.count("static __attribute__((always_inline)) inline "), 13)
+        self.assertIn("f->pc > f->bc_size || width > f->bc_size-f->pc", generated)
+        for width, function in ((1, "bc_u8"), (2, "bc_u16"), (4, "bc_u32"), (8, "bc_u64"), (2, "bc_opcode")):
+            body = re.search(r"inline uint\d+_t " + function + r"\(VMFrame \*f\) \{(.*?)\n\}", generated, re.S)[1]
+            self.assertIn(f"bc_require(f, {width}u);", body)
+            self.assertLess(body.index("bc_require"), body.index("_unchecked"))
+        # Checked multi-byte reads only use unchecked scalar internals after
+        # the complete span check, rather than nesting per-byte branches.
+        self.assertIn("bc_require(f, 8u);\n    uint64_t hi=bc_u32_unchecked(f);", generated)
+
+    def test_enabled_layers_propagate_and_legacy_applied_list_is_not_requested_list(self):
+        original = ir_fixture(stock(self.RR))
+        none, no_manifest = d.transform_ir(original, TABLE, 7, enabled_layers=[])
+        selected, manifest = d.transform_ir(original, TABLE, 7, enabled_layers=["anti_tamper"])
+        self.assertNotIn("__antirea_decoy", none)
+        self.assertNotIn("__antirea_decoy", selected)
+        self.assertEqual(no_manifest["requested_hardening_layers"], [])
+        self.assertEqual(manifest["requested_hardening_layers"], ["anti_tamper"])
+        self.assertEqual(manifest["hardening_layers"], [])
+        self.assertTrue(manifest["parameters"]["hardening"]["bytecode_integrity"])
+        self.assertIn("bytecode_integrity_tag", manifest["blobs"][0])
+        self.assertNotIn("header_integrity_tag", no_manifest["blobs"][0])
+        self.assertFalse(manifest["hardening_capabilities"]["layers"]["iat_api_hiding"]["requested"])
+
+    def test_disable_hardening_cannot_silently_override_specific_requests(self):
+        with self.assertRaises(ValueError):
+            d.parameters(1, {"OP_RET"}, enable_hardening=False, enabled_layers=["anti_tamper"])
+        self.assertNotIn("hardening", d.parameters(1, {"OP_RET"}, enable_hardening=False))
+
+    def test_ambiguous_key_length_integrity_bindings_fail_closed(self):
+        one = ir_fixture(stock(self.RR))
+        changed = bytearray(self.RR)
+        changed[1] = 3
+        two = ir_fixture(stock(changed)).replace("_bc_1", "_bc_2").replace("_key_1", "_key_2")
+        two = two.replace("@antirea_score", "@antirea_other")
+        two = two[:two.index("declare i64")]
+        with self.assertRaisesRegex(ValueError, "Ambiguous"):
+            d.transform_ir(one + two, TABLE, 7, enabled_layers=["anti_tamper"])
+        # The format conversion itself remains available without this unsupported binding.
+        _, manifest = d.transform_ir(one + two, TABLE, 7, enabled_layers=[])
+        self.assertEqual(len(manifest["blobs"]), 2)
+
+
+@unittest.skipUnless(os.name == "nt" and CLANG.exists() and RUNTIME.exists(), "local pinned Windows codec compiler required")
+class CompiledScalarFetchTests(unittest.TestCase):
+    """Execute the emitted fetch helpers, not a replacement VM or target algorithm."""
+
+    def test_real_fetch_widths_feedback_positions_and_rejected_spans(self):
+        original = RUNTIME.read_bytes()
+        self.assertEqual(d.sha256(original), d.RUNTIME_SHA256)
+        params = d.parameters(1739, {"F_CONST", "OP_RET"}, enable_hardening=False)
+        runtime = d.specialize_runtime(original.decode(), params, "test_dispatch")
+        readers = runtime[runtime.index("/* Check a complete scalar read"):runtime.index("/* ── Width helpers")]
+        prelude = """typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+typedef unsigned long long uint64_t;
+__declspec(noreturn) void abort(void) { __builtin_trap(); }
+typedef struct { uint32_t pc,bc_size,operand_state; const uint8_t *bc; uint64_t key; } VMFrame;
+"""
+        wrapper = """
+__declspec(dllexport) uint64_t read_scalar(const uint8_t *bytes, uint32_t size,
+    uint64_t key, uint32_t position, uint32_t state, uint32_t width, uint32_t *out) {
+    VMFrame f; f.bc=bytes; f.bc_size=size; f.key=key; f.pc=position; f.operand_state=state;
+    uint64_t value;
+    switch(width) { case 0: value=bc_opcode(&f); break; case 1: value=bc_u8(&f); break;
+      case 2: value=bc_u16(&f); break; case 4: value=bc_u32(&f); break;
+      case 8: value=bc_u64(&f); break; default: abort(); }
+    out[0]=f.pc; out[1]=f.operand_state; return value;
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="antirea-scalar-codec-") as directory:
+            dll_path = Path(directory) / "codec.dll"
+            compiled = subprocess.run([str(CLANG), "-O1", "-x", "c", "-", "-shared", "-nostdlib",
+                                       "-fuse-ld=lld", "-Wl,/NOENTRY", "-o", str(dll_path)],
+                                      input=prelude + readers + wrapper, text=True, capture_output=True, timeout=30)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            dll = ctypes.CDLL(str(dll_path))
+            try:
+                read = dll.read_scalar
+                read.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_uint32, ctypes.c_uint64,
+                                 ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
+                read.restype = ctypes.c_uint64
+                # Multiple instruction positions exercise position/key-byte indexing;
+                # sequential feedback is checked after every completed scalar.
+                items = [d.Instruction(i, "F_CONST", ((i * 7919 + 255) & ((1 << (8 * width)) - 1),), (width,))
+                         for i, width in enumerate([1, 2, 4, 8] * 8)]
+                encoded, positions = d.emit(items, KEY, params)
+                buffer = (ctypes.c_uint8 * len(encoded)).from_buffer_copy(encoded)
+                out = (ctypes.c_uint32 * 2)()
+                for item in reversed(items):
+                    pos = positions[item.offset]
+                    token = params["tokens"][item.name]
+                    state = d.operand_context(pos, token, KEY, params)
+                    self.assertEqual(read(buffer, len(encoded), KEY, pos, 0, 0, out), token)
+                    self.assertEqual(list(out), [pos + 2, state])
+                    value, width = item.values[0], item.widths[0]
+                    self.assertEqual(read(buffer, len(encoded), KEY, pos + 2, state, width, out), value)
+                    for byte in value.to_bytes(width, "big"):
+                        state = d.operand_step(state, byte, params)
+                    self.assertEqual(list(out), [pos + 2 + width, state])
+            finally:
+                import _ctypes
+                _ctypes.FreeLibrary(dll._handle)
+            # A trap is distinct from an access violation. Passing NULL ensures
+            # invalid spans reach abort before any byte is fetched, even at u32 wrap.
+            child = """import ctypes,sys
+ctypes.windll.kernel32.SetErrorMode(0x8003)
+d=ctypes.CDLL(sys.argv[1]); f=d.read_scalar
+f.argtypes=[ctypes.c_void_p,ctypes.c_uint32,ctypes.c_uint64,ctypes.c_uint32,ctypes.c_uint32,ctypes.c_uint32,ctypes.c_void_p]
+f.restype=ctypes.c_uint64
+try:
+    f(None,int(sys.argv[2]),0,int(sys.argv[3]),0,int(sys.argv[4]),None)
+except OSError as error:
+    if (error.winerror & 0xffffffff) == 0xc000001d:
+        print('span_rejected_before_null_read')
+        sys.exit(0)
+    raise
+sys.exit(3)
+"""
+            bad = [(width - 1, 0, width) for width in (1, 2, 4, 8)]
+            bad += [(1, 0, 0), (0, 0xffffffff, 1), (0xffffffff, 0xffffffff, 2)]
+            for size, position, width in bad:
+                with self.subTest(size=size, position=position, width=width):
+                    child_result = subprocess.run([sys.executable, "-I", "-S", "-c", child, str(dll_path),
+                                                   str(size), str(position), str(width)],
+                                                  capture_output=True, timeout=15)
+                    self.assertEqual(child_result.returncode, 0, child_result.stderr)
+                    self.assertIn(b"span_rejected_before_null_read", child_result.stdout)
 
 
 if __name__ == "__main__":

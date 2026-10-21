@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "kind": "script_application_integration",
+  "language": "typescript",
+  "protected_source": "core.ts",
+  "entrypoint": "app.ts",
+  "application_files": ["app.ts", "core.ts", "format.ts"]
+}

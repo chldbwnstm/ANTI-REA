@@ -792,26 +792,26 @@ class Service:
             raise ProtectorError("min_speed_percent must be between 1 and 100")
         source = self._owned_or_relative(input_path)
         source_bytes = _read(source)
-        architecture = _pe(source_bytes)
         if provider in builtin_ids:
-            candidate = self._locate_kagura_candidate(source)
-            bench = self.benchmark(source, candidate, test_inputs=test_inputs,
-                                   min_speed_percent=min_speed_percent, repeats=3)
             return {
                 "schema_version": 1,
-                "status": "completed" if bench["functional_match"] else "failed",
+                "status": "blocked",
+                "reason": "source_project_required",
                 "provider": provider,
                 "engine": "ANTI-REA Engine",
-                "defense_level": defense_level,
-                "target_min_speed_percent": float(min_speed_percent),
                 "input_path": str(source),
-                "output_path": str(candidate),
-                "functional_match": bench["functional_match"],
-                "speed_percent": bench["speed_percent"],
-                "slowdown_ratio": bench["slowdown_ratio"],
-                "meets_speed_target": bench["meets_speed_target"],
-                "benchmark": bench,
+                "protection_applied": False,
+                "executed_target": False,
+                "next_tools": ["protection_source_plan", "protection_source_build",
+                               "protection_source_validate"],
+                "message": (
+                    "The built-in engine protects reviewed source projects during compilation; "
+                    "it cannot virtualize an arbitrary prebuilt executable. Create and inspect "
+                    "a source-project plan, explicitly build it, then validate its artifact. "
+                    "No existing candidate has been selected or benchmarked."
+                ),
             }
+        _pe(source_bytes)
         order = list(DEFENSE_LEVELS)
         start_idx = order.index(defense_level)
         # Try from requested defense_level down to lighter levels if speed_percent < min_speed_percent
@@ -890,19 +890,6 @@ class Service:
             "benchmark": selected.get("benchmark"),
             "attempts": attempts,
         }
-
-    def _locate_kagura_candidate(self, source: Path) -> Path:
-        for candidate in (
-            source.with_name(source.stem + ".protected.exe"),
-            self.root / ".runs/defense-loop/current/ledger.exe",
-        ):
-            if candidate.is_file():
-                try:
-                    return self._owned(candidate)
-                except ProtectorError:
-                    continue
-        return source
-
 
 DEFENSE_LEVELS = ("mutation", "balanced", "max_vm")
 

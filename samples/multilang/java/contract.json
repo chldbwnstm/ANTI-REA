@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "library_name": "java_bytecode_core",
+  "calling_convention": "cdecl",
+  "functions": [
+    {"name": "java_fold", "return_type": "i32", "parameters": [{"name": "a0", "type": "i32"}, {"name": "a1", "type": "i32"}]},
+    {"name": "java_wide", "return_type": "i64", "parameters": [{"name": "a0", "type": "i64"}, {"name": "a1", "type": "i64"}]},
+    {"name": "java_narrow", "return_type": "i32", "parameters": [{"name": "a0", "type": "i64"}, {"name": "a1", "type": "i32"}]}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "kind": "python_integer_samples",
+  "functions": [
+    {"name": "integer_score", "parameters": [
+      {"name": "x", "minimum": -1267650600228229401496703205376, "maximum": 1267650600228229401496703205376},
+      {"name": "y", "minimum": -1267650600228229401496703205376, "maximum": 1267650600228229401496703205376}
+    ]}
+  ]
+}

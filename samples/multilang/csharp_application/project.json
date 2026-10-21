@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "sampleops",
+  "language": "csharp",
+  "sources": ["Ops.cs", "Program.cs"],
+  "methods": [
+    {"type": "Sample.Ops", "name": "Transform", "export": "cs_transform"},
+    {"type": "Sample.Ops", "name": "Accumulate", "export": "cs_accumulate"},
+    {"type": "Sample.Ops", "name": "FoldHelper", "export": "cs_fold_helper"}
+  ]
+}

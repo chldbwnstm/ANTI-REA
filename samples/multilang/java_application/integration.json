@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "kind": "jvm_application_integration",
+  "language": "java",
+  "application_sources": ["App.java"],
+  "main_class": "sample.App"
+}

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "library_name": "cpp_namespace_core",
+  "functions": [{"name": "public_score", "return_type": "u64", "parameters": [
+    {"name": "a", "type": "u64"}, {"name": "b", "type": "u64"}
+  ]}]
+}

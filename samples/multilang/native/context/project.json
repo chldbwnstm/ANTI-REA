@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "context-native-core",
+  "language": "cpp",
+  "sources": ["core.cpp", "prepare.cpp", "entry.cpp"],
+  "functions": ["context_public"],
+  "scope_policy": "protection-policy.json"
+}

@@ -1,26 +1,273 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="220" viewBox="0 0 1200 220" role="img" aria-labelledby="title desc">
-  <title id="title">TestApp VM Defense vs. REA Attack — 25%</title>
-  <desc id="desc">Progress bar showing current VM defense strength against direct REA attacks on TestApp (currently at 25%: static full reconstruction blocked).</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">ANTI-REA Cosmic Defense Roadmap</title>
+  <desc id="desc">Dynamic cosmic flight roadmap showing Phase 1 to Phase 7 defense progression against autonomous reverse engineering.</desc>
   <defs>
-    <linearGradient id="progress" x1="0" x2="1">
-      <stop offset="0" stop-color="#4bbd9c"/>
-      <stop offset="1" stop-color="#a4f3d8"/>
+    <!-- Deep Space Background Gradient -->
+    <linearGradient id="space-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#070a13"/>
+      <stop offset="50%" stop-color="#0c1324"/>
+      <stop offset="100%" stop-color="#080c17"/>
     </linearGradient>
+
+    <!-- Nebulae Radial Glows -->
+    <radialGradient id="nebula-cyan" cx="15%" cy="55%" r="35%">
+      <stop offset="0%" stop-color="#4bbd9c" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#4bbd9c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="nebula-purple" cx="80%" cy="40%" r="40%">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.09"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Thruster Flame Gradients -->
+    <linearGradient id="flame-outer" x1="100%" y1="50%" x2="0%" y2="50%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="40%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#818cf8" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="flame-core" x1="100%" y1="50%" x2="0%" y2="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#a4f3d8"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Spaceship Hull Gradients -->
+    <linearGradient id="hull-main" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="50%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="hull-wing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#475569"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="cockpit-glow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#a4f3d8"/>
+    </linearGradient>
+
+    <!-- Active Trail Gradient -->
+    <linearGradient id="active-orbit-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#4bbd9c"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="glow-light" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
   </defs>
-  <rect width="1200" height="220" rx="16" fill="#10161e"/>
+
+  <style>
+    @keyframes flame-pulse {
+      0%, 100% { transform: scaleX(1) scaleY(1); opacity: 0.95; }
+      50% { transform: scaleX(1.35) scaleY(0.85); opacity: 0.75; }
+    }
+    @keyframes ship-hover {
+      0%, 100% { transform: translate(315px, 214px) rotate(8deg); }
+      50% { transform: translate(315px, 206px) rotate(6deg); }
+    }
+    @keyframes pulse-node {
+      0% { r: 10px; opacity: 0.8; }
+      50% { r: 18px; opacity: 0; }
+      100% { r: 10px; opacity: 0; }
+    }
+    @keyframes orbit-flow {
+      from { stroke-dashoffset: 48; }
+      to { stroke-dashoffset: 0; }
+    }
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.2; }
+      50% { opacity: 0.85; }
+    }
+    .hover-flight {
+      animation: ship-hover 3s ease-in-out infinite;
+    }
+    .thruster-jet {
+      transform-origin: 0px 0px;
+      animation: flame-pulse 0.28s ease-in-out infinite;
+    }
+    .star-twinkle-1 { animation: twinkle 3s ease-in-out infinite; }
+    .star-twinkle-2 { animation: twinkle 2.2s ease-in-out infinite 0.7s; }
+    .star-twinkle-3 { animation: twinkle 4s ease-in-out infinite 1.4s; }
+  </style>
+
+  <!-- Space Canvas Background -->
+  <rect width="1200" height="380" rx="20" fill="url(#space-bg)"/>
+  <rect width="1200" height="380" rx="20" fill="url(#nebula-cyan)"/>
+  <rect width="1200" height="380" rx="20" fill="url(#nebula-purple)"/>
+
+  <!-- Background Stars -->
+  <g fill="#ffffff">
+    <circle cx="50" cy="45" r="1" opacity="0.3"/>
+    <circle cx="120" cy="110" r="1.5" class="star-twinkle-1"/>
+    <circle cx="210" cy="40" r="1" opacity="0.4"/>
+    <circle cx="280" cy="130" r="1.5" class="star-twinkle-2"/>
+    <circle cx="340" cy="70" r="1" opacity="0.3"/>
+    <circle cx="460" cy="60" r="2" class="star-twinkle-3"/>
+    <circle cx="520" cy="140" r="1" opacity="0.5"/>
+    <circle cx="630" cy="50" r="1.5" class="star-twinkle-1"/>
+    <circle cx="710" cy="110" r="1" opacity="0.4"/>
+    <circle cx="790" cy="65" r="1.8" class="star-twinkle-2"/>
+    <circle cx="880" cy="125" r="1" opacity="0.3"/>
+    <circle cx="950" cy="45" r="2" class="star-twinkle-3"/>
+    <circle cx="1030" cy="95" r="1" opacity="0.5"/>
+    <circle cx="1120" cy="55" r="1.5" class="star-twinkle-1"/>
+    <circle cx="1160" cy="140" r="1" opacity="0.3"/>
+    <!-- Lower field stars -->
+    <circle cx="90" cy="330" r="1.5" class="star-twinkle-2"/>
+    <circle cx="320" cy="340" r="1" opacity="0.4"/>
+    <circle cx="580" cy="350" r="1.8" class="star-twinkle-3"/>
+    <circle cx="850" cy="330" r="1" opacity="0.3"/>
+    <circle cx="1080" cy="345" r="1.5" class="star-twinkle-1"/>
+  </g>
+
+  <!-- Header Section -->
   <g font-family="Inter, 'Segoe UI', Arial, sans-serif">
-    <text x="40" y="42" fill="#8298aa" font-size="12" font-weight="600" letter-spacing="1.5">TESTAPP VM DEFENSE vs. REA</text>
-    <text x="40" y="76" fill="#edf5f8" font-size="22" font-weight="700">TestApp VM Defense Strength vs. Live REA Attack</text>
-    <text x="1160" y="35" fill="#8298aa" font-size="11" font-weight="600" letter-spacing="1.2" text-anchor="end">CURRENT DEFENSE</text>
-    <text x="1160" y="78" fill="#a4f3d8" font-size="42" font-weight="700" text-anchor="end">25<tspan font-size="25">%</tspan></text>
-    <rect x="40" y="103" width="1120" height="16" rx="8" fill="#24313e"/>
-    <rect x="40" y="103" width="280" height="16" rx="8" fill="url(#progress)"/>
-    <rect x="316" y="99" width="4" height="24" rx="2" fill="#c3ffe9"/>
-    <path d="M320 103 V119 M600 103 V119 M880 103 V119" stroke="#10161e" stroke-width="4"/>
-    <text x="40" y="150" fill="#a4f3d8" font-size="12" font-weight="700">25% · Static Reconstruction Blocked</text>
-    <text x="336" y="150" fill="#8298aa" font-size="12" font-weight="600">50% · Context Inference Blocked</text>
-    <text x="616" y="150" fill="#8298aa" font-size="12" font-weight="600">75% · Dynamic Tracing Defense</text>
-    <text x="896" y="150" fill="#8298aa" font-size="12" font-weight="600">100% · Full Multi-Target Defense</text>
-    <text x="40" y="188" fill="#a8b9c8" font-size="13">Operand context &amp; dispatcher hardening now prevent external REA static analysis from reconstructing the core formula.</text>
+    <!-- Top Mission Protocol Badge -->
+    <rect x="50" y="32" width="220" height="26" rx="13" fill="#142132" stroke="#25384f"/>
+    <circle cx="64" cy="45" r="3.5" fill="#4bbd9c"/>
+    <text x="76" y="49" fill="#8de6cc" font-size="11" font-weight="700" letter-spacing="1.2">DEFENSE EVOLUTION FLIGHT</text>
+
+    <!-- Main Title -->
+    <text x="50" y="86" fill="#f1f5f9" font-size="24" font-weight="700">ANTI-REA Cosmic Defense Roadmap</text>
+    <text x="50" y="108" fill="#94a3b8" font-size="13">Continuously scaling and hardening defenses against autonomous REA reverse engineering</text>
+
+    <!-- Current Sector Indicator (Top Right) -->
+    <rect x="910" y="34" width="240" height="54" rx="12" fill="#111c2a" stroke="#1e3448"/>
+    <text x="928" y="55" fill="#8298aa" font-size="11" font-weight="600" letter-spacing="1">CURRENT STATUS</text>
+    <circle cx="932" cy="73" r="4" fill="#38bdf8"/>
+    <text x="944" y="77" fill="#bae6fd" font-size="14" font-weight="700">Phase 2 : Active Hardening</text>
+  </g>
+
+  <!-- ==================== ORBITAL TRAJECTORY ==================== -->
+  <!-- Base Background Rail (Dotted Future Flight Path) -->
+  <path d="M 90 220 C 175 190, 175 205, 260 205 C 345 205, 345 225, 430 225 C 515 225, 515 205, 600 205 C 685 205, 685 225, 770 225 C 855 225, 855 205, 940 205 C 1025 205, 1025 220, 1110 220"
+        fill="none" stroke="#223249" stroke-width="3" stroke-dasharray="6 6"/>
+
+  <!-- Completed Trajectory (Phase 1 to Phase 2) -->
+  <path d="M 90 220 C 175 190, 175 205, 260 205"
+        fill="none" stroke="#4bbd9c" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+
+  <!-- Active Neon Thrust Stream (Phase 2 to Phase 3) -->
+  <path d="M 260 205 C 345 205, 345 225, 430 225"
+        fill="none" stroke="url(#active-orbit-grad)" stroke-width="4" stroke-linecap="round"
+        stroke-dasharray="12 6" style="animation: orbit-flow 1.5s linear infinite;"/>
+
+  <!-- Pulse Aura on Phase 2 Active Node -->
+  <circle cx="260" cy="205" r="10" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.85">
+    <animate attributeName="r" values="8;22;8" dur="2.4s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.9;0;0.9" dur="2.4s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- ==================== DYNAMIC SPACESHIP (Cruising to Phase 3) ==================== -->
+  <g class="hover-flight">
+    <!-- Thruster Flame (Jet Plasma) -->
+    <g transform="translate(-16, 0)" class="thruster-jet">
+      <!-- Outer Flame -->
+      <polygon points="0,-7 -44,-3 -58,0 -44,3 0,7" fill="url(#flame-outer)"/>
+      <!-- Inner Core Flame -->
+      <polygon points="0,-4 -28,-1.5 -38,0 -28,1.5 0,4" fill="url(#flame-core)"/>
+    </g>
+
+    <!-- Starship Main Body -->
+    <!-- Wings -->
+    <polygon points="-8,-16 10,-7 14,0 10,7 -8,16 -3,0" fill="url(#hull-wing)" stroke="#38bdf8" stroke-width="1"/>
+    <!-- Fuselage -->
+    <polygon points="-16,-6 26,0 -16,6 -10,0" fill="url(#hull-main)" stroke="#4bbd9c" stroke-width="1.2"/>
+    <!-- Cockpit Canopy Glass -->
+    <polygon points="0,-2.5 16,0 0,2.5 -4,0" fill="url(#cockpit-glow)" filter="url(#glow-light)"/>
+    <!-- Wingtip Lights -->
+    <circle cx="-8" cy="-15" r="1.5" fill="#38bdf8"/>
+    <circle cx="-8" cy="15" r="1.5" fill="#4bbd9c"/>
+  </g>
+
+  <!-- ==================== PHASE NODES & LABELS ==================== -->
+  <g font-family="Inter, 'Segoe UI', Arial, sans-serif" text-anchor="middle">
+
+    <!-- ========== PHASE 1 (COMPLETED) ========== -->
+    <g transform="translate(90, 0)">
+      <circle cx="0" cy="220" r="9" fill="#0d2820" stroke="#4bbd9c" stroke-width="2.5"/>
+      <circle cx="0" cy="220" r="4" fill="#4bbd9c"/>
+
+      <text x="0" y="254" fill="#4bbd9c" font-size="12" font-weight="800" letter-spacing="1">PHASE 1</text>
+      <text x="0" y="274" fill="#f1f5f9" font-size="13" font-weight="700">정적 파일 보호 집중</text>
+      <text x="0" y="292" fill="#94a3b8" font-size="11">Static Binary Protection</text>
+      <!-- Status Badge -->
+      <rect x="-48" y="306" width="96" height="20" rx="5" fill="#142c27" stroke="#25584b"/>
+      <text x="0" y="320" fill="#6ee7b7" font-size="10" font-weight="700">✓ COMPLETED</text>
+    </g>
+
+    <!-- ========== PHASE 2 (ACTIVE NOW) ========== -->
+    <g transform="translate(260, 0)">
+      <circle cx="0" cy="205" r="9" fill="#0e2338" stroke="#38bdf8" stroke-width="3"/>
+      <circle cx="0" cy="205" r="4" fill="#7dd3fc"/>
+
+      <text x="0" y="244" fill="#38bdf8" font-size="12" font-weight="800" letter-spacing="1">PHASE 2</text>
+      <text x="0" y="264" fill="#f1f5f9" font-size="13" font-weight="700">정적 보호 강화</text>
+      <text x="0" y="282" fill="#94a3b8" font-size="11">Deep Static Hardening</text>
+      <!-- Status Badge -->
+      <rect x="-42" y="296" width="84" height="20" rx="5" fill="#0c2e4e" stroke="#1d5c8e"/>
+      <text x="0" y="310" fill="#38bdf8" font-size="10" font-weight="800">ACTIVE</text>
+    </g>
+
+    <!-- ========== PHASE 3 (NEXT MISSION) ========== -->
+    <g transform="translate(430, 0)">
+      <circle cx="0" cy="225" r="8" fill="#1f1d38" stroke="#a855f7" stroke-width="2.5"/>
+      <circle cx="0" cy="225" r="3.5" fill="#c084fc"/>
+
+      <text x="0" y="259" fill="#c084fc" font-size="12" font-weight="800" letter-spacing="1">PHASE 3</text>
+      <text x="0" y="279" fill="#f1f5f9" font-size="13" font-weight="700">공격 테스터 확장</text>
+      <text x="0" y="297" fill="#94a3b8" font-size="11">Scaling Attack Testers</text>
+      <!-- Subtext description -->
+      <rect x="-42" y="311" width="84" height="20" rx="5" fill="#241738" stroke="#482772"/>
+      <text x="0" y="325" fill="#d8b4fe" font-size="10" font-weight="700">NEXT</text>
+    </g>
+
+    <!-- ========== PHASE 4 ========== -->
+    <g transform="translate(600, 0)">
+      <circle cx="0" cy="205" r="8" fill="#161e2e" stroke="#475569" stroke-width="2" stroke-dasharray="3 3"/>
+      <circle cx="0" cy="205" r="3" fill="#64748b"/>
+
+      <text x="0" y="244" fill="#94a3b8" font-size="12" font-weight="700" letter-spacing="1">PHASE 4</text>
+      <text x="0" y="272" fill="#cbd5e1" font-size="18" font-weight="800">?</text>
+      <rect x="-45" y="296" width="90" height="20" rx="5" fill="#1e293b" stroke="#334155"/>
+      <text x="0" y="310" fill="#64748b" font-size="10" font-weight="600">CLASSIFIED</text>
+    </g>
+
+    <!-- ========== PHASE 5 ========== -->
+    <g transform="translate(770, 0)">
+      <circle cx="0" cy="225" r="8" fill="#161e2e" stroke="#475569" stroke-width="2" stroke-dasharray="3 3"/>
+      <circle cx="0" cy="225" r="3" fill="#64748b"/>
+
+      <text x="0" y="259" fill="#94a3b8" font-size="12" font-weight="700" letter-spacing="1">PHASE 5</text>
+      <text x="0" y="287" fill="#cbd5e1" font-size="18" font-weight="800">?</text>
+      <rect x="-45" y="311" width="90" height="20" rx="5" fill="#1e293b" stroke="#334155"/>
+      <text x="0" y="325" fill="#64748b" font-size="10" font-weight="600">CLASSIFIED</text>
+    </g>
+
+    <!-- ========== PHASE 6 ========== -->
+    <g transform="translate(940, 0)">
+      <circle cx="0" cy="205" r="8" fill="#161e2e" stroke="#475569" stroke-width="2" stroke-dasharray="3 3"/>
+      <circle cx="0" cy="205" r="3" fill="#64748b"/>
+
+      <text x="0" y="244" fill="#94a3b8" font-size="12" font-weight="700" letter-spacing="1">PHASE 6</text>
+      <text x="0" y="272" fill="#cbd5e1" font-size="18" font-weight="800">?</text>
+      <rect x="-45" y="296" width="90" height="20" rx="5" fill="#1e293b" stroke="#334155"/>
+      <text x="0" y="310" fill="#64748b" font-size="10" font-weight="600">CLASSIFIED</text>
+    </g>
+
+    <!-- ========== PHASE 7 (THE FRONTIER) ========== -->
+    <g transform="translate(1110, 0)">
+      <circle cx="0" cy="220" r="10" fill="#1e1832" stroke="#eab308" stroke-width="2.5" stroke-dasharray="4 2"/>
+      <circle cx="0" cy="220" r="4" fill="#fde047"/>
+
+      <text x="0" y="254" fill="#facc15" font-size="12" font-weight="800" letter-spacing="1">PHASE 7</text>
+      <text x="0" y="282" fill="#fef08a" font-size="18" font-weight="800">?</text>
+      <rect x="-48" y="306" width="96" height="20" rx="5" fill="#2d2210" stroke="#544115"/>
+      <text x="0" y="320" fill="#fbbf24" font-size="10" font-weight="700">FRONTIER</text>
+    </g>
+
   </g>
 </svg>

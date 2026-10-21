@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "kind": "script_application_samples",
+  "cases": [
+    {"label": "scaled-basic", "args": ["scaled", "10", "5"], "expect": {"returncode": 0, "stdout": "scaled -> 40\n"}},
+    {"label": "scaled-zero", "args": ["scaled", "0", "0"], "expect": {"returncode": 0, "stdout": "scaled -> 0\n"}},
+    {"label": "scaled-negative-base", "args": ["scaled", "-4", "2"], "expect": {"returncode": 0, "stdout": "scaled -> 8\n"}},
+    {"label": "fold-positive", "args": ["fold", "5", "2"], "expect": {"returncode": 0, "stdout": "fold -> 12\n"}},
+    {"label": "fold-negative-branch", "args": ["fold", "-5", "2"], "expect": {"returncode": 0, "stdout": "fold -> 7\n"}},
+    {"label": "fold-zero", "args": ["fold", "0", "0"], "expect": {"returncode": 0, "stdout": "fold -> 0\n"}},
+    {"label": "below-less", "args": ["below", "2", "5"], "expect": {"returncode": 0, "stdout": "below -> true\n"}},
+    {"label": "below-greater", "args": ["below", "5", "2"], "expect": {"returncode": 0, "stdout": "below -> false\n"}},
+    {"label": "below-equal", "args": ["below", "3", "3"], "expect": {"returncode": 0, "stdout": "below -> false\n"}},
+    {"label": "usage-no-args", "args": [], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-unknown-op", "args": ["bogus", "1", "2"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-bad-arity", "args": ["scaled", "1"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-bad-operand", "args": ["scaled", "x", "3"], "expect": {"returncode": 2, "stdout": ""}}
+  ]
+}

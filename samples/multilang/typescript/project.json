@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "typescript-scalar-source",
+  "language": "typescript",
+  "sources": ["core.ts"],
+  "functions": ["bigintScore", "bigintErrors", "booleanGate"]
+}

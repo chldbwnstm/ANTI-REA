@@ -1,7 +1,8 @@
-"""Defender-only MCP/CLI facade for installed commercial protection adapters.
+"""Defender-only MCP/CLI facade for native-source and commercial protection.
 
 This server does not load the historical attacker bridge. It has no arbitrary
-shell, REA, target execution, package installation or public-publishing tools.
+shell, REA, package installation or public-publishing tools. Existing benchmark
+tools execute owned binaries; source build and binding tools do not execute apps.
 """
 from __future__ import annotations
 
@@ -9,6 +10,8 @@ import argparse
 import json
 from pathlib import Path
 import sys
+
+from .languages import LANGUAGE_IDS
 
 
 SUPPORTED_PROTOCOLS = ("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
@@ -34,6 +37,28 @@ SPEED_PERCENT = {"type": "integer", "minimum": 1, "maximum": 100}
 FUNCTION_LIST = {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 128}, "minItems": 1, "maxItems": 64}
 INPUT_LIST = {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 4096}, "minItems": 1, "maxItems": 64}
 TOOLS = [
+    {"name": "protection_languages", "description": "List direct-source routes and native-core bindings separately. Tool discovery and generated wrappers do not establish language-wide protection or platform verification.",
+     "inputSchema": schema({"language": {"type": "string", "enum": list(LANGUAGE_IDS)}}),
+     "annotations": {"readOnlyHint": True, "openWorldHint": False}},
+    {"name": "protection_source_plan", "description": "Inspect an owned source-project manifest and create a fingerprinted plan. Pins bounded project and tool inputs. May run a trusted parser or offline locked Cargo metadata (including compiler information queries), but never target source compilation, application code or publication. Cargo project inspection remains explicitly build-blocked.",
+     "inputSchema": schema({"project_path": TEXT, "seed": {"type": "integer", "minimum": 1, "maximum": 2147483647}}, ("project_path",)),
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}},
+    {"name": "protection_source_build", "description": "Build a reviewed source plan into a fresh private directory using its exact fingerprint. Native/.NET/JVM routes execute compilers; Python and JS/TS routes transform source into language-specific VMs. Cargo inspection plans fail with rust_cargo_build_not_implemented before commands. Does not execute resulting applications. Unsupported functions or missing VM coverage fail; artifact creation is not a defense verdict.",
+     "inputSchema": schema({"plan_id": TEXT, "fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}, ("plan_id", "fingerprint")),
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True}},
+    {"name": "protection_bindings", "description": "Generate typed language bindings from an owned native ABI contract in a fresh private directory. Does not compile or run code, and does not protect host-language source.",
+     "inputSchema": schema({"contract_path": TEXT}, ("contract_path",)),
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False}},
+    {"name": "protection_source_validate", "description": "Explicitly execute owned baseline/protected artifacts and, for C#/JVM lowering, original CLR/JVM code. Native backends require a scalar ABI contract; Python/JS VMs use language-specific sample contracts. Compare sampled outputs and repeated behavior with timing. Not a sandbox, all-input proof or attack-resistance test.",
+     "inputSchema": schema({"plan_id": TEXT, "contract_path": TEXT,
+                            "random_cases": {"type": "integer", "minimum": 1, "maximum": 8192},
+                            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}}, ("plan_id", "contract_path")),
+     "annotations": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True}},
+    {"name": "protection_source_integrate", "description": "Explicitly integrate an owned application around an existing reviewed source build. Compile and execute C#, Java, Kotlin, Go or Swift apps; Python/JS/TS execute staged script modules, with TypeScript transpiled by the pinned compiler. Reuse the saved protected artifact. Requires a language-specific integration spec and application-samples contract in the original planned source tree. JVM uses JNI facades; Go/Swift use native-backed facades; Python/JS/TS replace one protected module in an explicit application-file inventory and verify a copied deployment bundle. Ordinary callers remain unprotected. Script execution requires script_application_integration and script_application_samples. Creates only local deployment files. Does not publish, install dependencies, overwrite original source or invoke package/build hooks. Sampled agreement is not defense strength or all-input equivalence.",
+     "inputSchema": schema({"plan_id": TEXT, "integration_spec_path": TEXT, "contract_path": TEXT,
+                            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}},
+                           ("plan_id", "integration_spec_path", "contract_path")),
+     "annotations": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True}},
     {"name": "protection_providers", "description": "List adapter contracts and limitations. Does not install or execute protectors.",
      "inputSchema": schema(), "annotations": {"readOnlyHint": True, "openWorldHint": False}},
     {"name": "protection_doctor", "description": "Inspect configured local tool paths, declared editions and execution blockers without launching tools. Discovery is not license or protection verification.",
@@ -64,7 +89,7 @@ TOOLS = [
                            "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600}},
                           ("baseline_path", "candidate_path")),
      "annotations": {"readOnlyHint": True, "openWorldHint": False}},
-    {"name": "protection_auto_protect", "description": "Natural-language protection workflow: generate vendor project (or use the built-in ANTI-REA Engine), protect binary, benchmark functional match and speed_percent, and automatically step down defense_level if speed falls below min_speed_percent.",
+    {"name": "protection_auto_protect", "description": "Commercial binary workflow: generate a vendor project, protect an owned binary, benchmark its sampled behavior and speed, and step down defense_level if speed falls below min_speed_percent. Built-in ANTI-REA/Kagura providers return blocked: use source_plan, source_build and source_validate for reviewed source projects instead.",
      "inputSchema": schema({"provider": AUTO_PROVIDER, "input_path": TEXT, "functions": FUNCTION_LIST,
                            "defense_level": DEFENSE_LEVEL, "min_speed_percent": SPEED_PERCENT,
                            "test_inputs": INPUT_LIST,
@@ -129,12 +154,33 @@ def validate_arguments(tool, arguments):
 
 
 class DefenseBridge:
-    def __init__(self, service):
+    def __init__(self, service, project_service=None):
         self.service = service
+        self.project_service = project_service
         self.initialized = False
         self.ready = False
 
     def call(self, name, arguments):
+        if name == "protection_languages":
+            from .languages import language_catalog
+            return language_catalog(arguments.get("language"))
+        if name in {"protection_source_plan", "protection_source_build", "protection_bindings", "protection_source_validate", "protection_source_integrate"}:
+            if self.project_service is None:
+                from .projects import ProjectService
+                self.project_service = ProjectService(self.service.root)
+            if name == "protection_source_plan":
+                return self.project_service.plan(arguments["project_path"], seed=arguments.get("seed", 1729))
+            if name == "protection_source_build":
+                return self.project_service.build(arguments["plan_id"], arguments["fingerprint"])
+            if name == "protection_source_validate":
+                return self.project_service.validate(arguments["plan_id"], arguments["contract_path"],
+                                                     random_cases=arguments.get("random_cases", 8192),
+                                                     timeout_seconds=arguments.get("timeout_seconds", 120))
+            if name == "protection_source_integrate":
+                return self.project_service.integrate(arguments["plan_id"], arguments["integration_spec_path"],
+                                                      arguments["contract_path"],
+                                                      timeout_seconds=arguments.get("timeout_seconds", 120))
+            return self.project_service.bindings(arguments["contract_path"])
         if name == "protection_providers":
             return self.service.providers()
         if name == "protection_doctor":
@@ -204,7 +250,7 @@ class DefenseBridge:
             result = {"protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else SUPPORTED_PROTOCOLS[-1],
                       "capabilities": {"tools": {"listChanged": False}},
                       "serverInfo": {"name": "anti-rea-defense", "version": "0.1.0"},
-                      "instructions": "Defender-only local adapters. Review plans before execution. Artifact creation does not establish virtualization coverage, functional preservation, or attack resistance. No attack, target execution or publishing tools are exposed."}
+                      "instructions": "Defender-only local adapters. Review plans before execution. Artifact creation does not establish functional preservation or attack resistance. Source builds execute compilers; benchmark tools execute owned binaries. Binding generation does not protect host-language source. No attack or publishing tools are exposed."}
         elif method == "ping":
             result = {}
         elif method in {"tools/list", "tools/call"}:
@@ -280,6 +326,26 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init")
     sub.add_parser("providers")
+    languages = sub.add_parser("languages")
+    languages.add_argument("--language", choices=LANGUAGE_IDS)
+    source_plan = sub.add_parser("source-plan")
+    source_plan.add_argument("--project", dest="project_path", required=True)
+    source_plan.add_argument("--seed", type=int, default=1729)
+    source_build = sub.add_parser("source-build")
+    source_build.add_argument("--plan-id", required=True)
+    source_build.add_argument("--fingerprint", required=True)
+    bindings = sub.add_parser("bindings")
+    bindings.add_argument("--contract", dest="contract_path", required=True)
+    source_validate = sub.add_parser("source-validate")
+    source_validate.add_argument("--plan-id", required=True)
+    source_validate.add_argument("--contract", dest="contract_path", required=True)
+    source_validate.add_argument("--random-cases", type=int, default=8192)
+    source_validate.add_argument("--timeout-seconds", type=int, default=120)
+    source_integrate = sub.add_parser("source-integrate")
+    source_integrate.add_argument("--plan-id", required=True)
+    source_integrate.add_argument("--integration-spec", dest="integration_spec_path", required=True)
+    source_integrate.add_argument("--contract", dest="contract_path", required=True)
+    source_integrate.add_argument("--timeout-seconds", type=int, default=120)
     doctor = sub.add_parser("doctor")
     doctor.add_argument("--provider", choices=PROVIDER_IDS)
     plan = sub.add_parser("plan")
@@ -338,7 +404,25 @@ def main(argv=None):
         service = Service.from_config(config_path)
         if args.command == "serve":
             return serve(service, sys.stdin, sys.stdout, sys.stderr)
-        if args.command == "providers":
+        if args.command == "languages":
+            from .languages import language_catalog
+            result = language_catalog(args.language)
+        elif args.command in {"source-plan", "source-build", "bindings", "source-validate", "source-integrate"}:
+            from .projects import ProjectService
+            projects = ProjectService(service.root)
+            if args.command == "source-plan":
+                result = projects.plan(args.project_path, seed=args.seed)
+            elif args.command == "source-build":
+                result = projects.build(args.plan_id, args.fingerprint)
+            elif args.command == "source-validate":
+                result = projects.validate(args.plan_id, args.contract_path, random_cases=args.random_cases,
+                                           timeout_seconds=args.timeout_seconds)
+            elif args.command == "source-integrate":
+                result = projects.integrate(args.plan_id, args.integration_spec_path, args.contract_path,
+                                            timeout_seconds=args.timeout_seconds)
+            else:
+                result = projects.bindings(args.contract_path)
+        elif args.command == "providers":
             result = service.providers()
         elif args.command == "doctor":
             result = service.doctor(args.provider)

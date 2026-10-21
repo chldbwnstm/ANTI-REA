@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "c-native-core",
+  "language": "c",
+  "sources": ["core.c"],
+  "functions": ["native_transform"]
+}

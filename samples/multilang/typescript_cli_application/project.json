@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "typescript-application-core",
+  "language": "typescript",
+  "sources": ["core.ts"],
+  "functions": ["scaled", "fold", "below"]
+}

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "javascript-scalar-source",
+  "language": "javascript",
+  "sources": ["core.js"],
+  "functions": ["numberScore", "numericEdges", "scalarCompare"]
+}

@@ -6,34 +6,66 @@
 
 **സംരക്ഷിക്കേണ്ട പ്രധാനപ്പെട്ട ഒരു ഫീച്ചർ ഉണ്ടോ? ബൈനറി തലം വരെ അത് വിശകലനം ചെയ്യപ്പെടുകയോ പകർത്തപ്പെടുകയോ ചെയ്യുന്നത് തടയുക.**
 
-[![Defense vs REA](https://img.shields.io/badge/Defense_vs_REA-25%25-4bbd9c?style=flat-square)](#roadmap)
+[![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_2_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
+[![Languages](https://img.shields.io/badge/Languages-11_Supported-007acc?style=flat-square)](#supported-programming-languages)
 [![MCP + CLI](https://img.shields.io/badge/MCP-stdio_%2B_CLI-5c4ee5?style=flat-square)](#quick-start)
 [![Python requirements](https://img.shields.io/badge/Python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white)](#quick-start)
-[![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#engines)
+[![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#supported-engines)
 [![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../../LICENSE)
 
-[REA](https://github.com/morluto/rea) പോലുള്ള റിവേഴ്സ് എഞ്ചിനീയറിംഗ് ടൂളുകൾ, *"ആ ആപ്പിലെ ഈ ഫീച്ചർ എങ്ങനെ പ്രവർത്തിക്കുന്നുവെന്ന് മനസ്സിലാക്കി എന്റെ പ്രോജക്റ്റിൽ അതുപോലൊന്ന് നിർമ്മിക്കുക"* എന്ന് ഏജന്റിനോട് ആവശ്യപ്പെട്ടാൽ ഉടൻ തന്നെ ബൈനറി പരിശോധിച്ച് യഥാർത്ഥ ലോജിക് 그대로 പുനർനിർമ്മിക്കുന്നു.
+Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agent inspect a binary when you ask *"Understand how this feature works in that app and build a copy for my project."*
 
-**ഏജന്റിക് ആക്രമണമോ? എങ്കിൽ ഞങ്ങളുടെ മറുപടി ഏജന്റിക് പ്രതിരോധമാണ് — കാലക്രമേണ കൂടുതൽ കരുത്താർജ്ജിക്കുന്ന പ്രതിരോധം.** **REA-യ്ക്ക് വിശകലനം ചെയ്യാൻ കഴിയുന്ന എല്ലാ ലക്ഷ്യങ്ങളെയും രീതികളെയും പൂർണ്ണമായി തടയുക** എന്നതാണ് **ANTI-REA**-യുടെ അന്തിമ ലക്ഷ്യം. നിങ്ങളുടെ ഏജന്റിനോട് സ്വാഭാവിക ഭാഷയിൽ **"എന്റെ പ്രോഗ്രാമിന്റെ പ്രധാന ലോജിക് REA വിശകലനം ചെയ്യുകയോ ക്ലോൺ ചെയ്യുകയോ ചെയ്യാത്ത വിധം സംരക്ഷിക്കുക"** എന്ന് പറഞ്ഞാൽ മതി; ഏജന്റ് പ്രധാന കോഡും ചുറ്റുമുള്ള സൂചനകളും കണ്ടെത്തി ഒബ്ഫസ്കേഷനും വെർച്വലൈസേഷനും (VM) പ്രയോഗിക്കുകയും, യഥാർത്ഥ പ്രവർത്തനം തകരാറിലായിട്ടില്ലെന്ന് ഉറപ്പാക്കുകയും, യഥാർത്ഥ വേഗതയുടെ എത്ര ശതമാനത്തിലാണ് പ്രോഗ്രാം പ്രവർത്തിക്കുന്നതെന്ന് അളക്കുകയും ചെയ്യുന്നു.
-
-സങ്കീർണ്ണമായ ആക്രമണ-പ്രതിരോധ ലാബുകൾ നിങ്ങൾ സ്വയം നിർമ്മിക്കേണ്ടതില്ല. **എല്ലാ ദിവസവും ഞങ്ങൾ ഞങ്ങളുടെ പ്രതിരോധ പിസിയെ പ്രത്യേക REA ആക്രമണ പിസിയുമായി ഏറ്റുമുട്ടിച്ച് TestApp-ലെ VM എവിടെയാണ് ഭേദിക്കപ്പെടുന്നതെന്ന് പരിശോധിച്ച് പഴുതുകൾ അടച്ച് പ്രതിരോധം കൂടുതൽ ശക്തമാക്കുന്നു.** നിങ്ങൾ ANTI-REA നിങ്ങളുടെ ഏജന്റുമായി ബന്ധിപ്പിച്ച് ഉപയോഗിച്ചാൽ മാത്രം മതി.
+**Agentic attack? Meet agentic defense — defense that grows stronger over time.** The ultimate goal of **ANTI-REA** is to **block everything that REA can analyze**. Ask your agent in plain language — *"Protect the core logic in my program so REA can't analyze or clone it"* — and the agent locates your core functions and surrounding clues, applies obfuscation and virtualization (VM), verifies that behavior isn't broken, and measures what percentage of the original speed it runs at.
 
 ---
 
-## നിലവിലെ പ്രതിരോധ ശേഷിയും റോഡ്മാപ്പും (TestApp VM vs. യഥാർത്ഥ REA ആക്രമണം)
+## What Gets Protected in Your Software?
 
-![TestApp VM Defense vs. REA 25%](../../docs/assets/defense-roadmap.svg)
-
-മുകളിലുള്ള സംഖ്യ വെറുമൊരു പ്രോജക്റ്റ് ഷെഡ്യൂൾ അല്ല; **മറ്റൊരു പിസിയിൽ നിന്നുള്ള നേരിട്ടുള്ള REA ആക്രമണങ്ങൾക്കെതിരെ ഞങ്ങളുടെ VM-സംരക്ഷിത TestApp എത്രത്തോളം പിടിച്ചുനിൽക്കുന്നു (പ്രതിരോധ ശേഷി)** എന്നതിനെ സൂചിപ്പിക്കുന്നു.
-
-### പ്രതിരോധം ശക്തിപ്പെടുത്തുന്ന ഘട്ടങ്ങൾ (അന്തിമ ലക്ഷ്യം: REA വിശകലനം ചെയ്യുന്നതെല്ലാം തടയുക)
-
-- **25% (നിലവിൽ) · ഒന്നാം ഘട്ട സ്റ്റാറ്റിക് പുനർനിർമ്മാണം തടഞ്ഞു:** ഹാൻഡ്ലർ വൈവിധ്യവൽക്കരണവും ഓപ്പറാൻഡ് കോൺടെക്സ്റ്റ് സംയോജനവും വഴി REA സ്റ്റാറ്റിക് വിശകലനം പ്രധാന ഫോർമുല വീണ്ടെടുക്കുന്നത് തടഞ്ഞു.
-- **50% · സ്റ്റാറ്റിക് വിശകലനവും ചുറ്റുമുള്ള സൂചനകളിൽ നിന്നുള്ള അനുമാനവും തടയൽ:** ഡിസ്പാച്ചറിനുള്ളിലെ സഹായ ഫംഗ്ഷനുകളും കോൾ ഗ്രാഫിലെ സൂചനകളും മറയ്ക്കുന്നു.
-- **75% · ഡൈനാമിക് ട്രേസിംഗിനും ഡീബഗ്ഗിംഗിനും എതിരെയുള്ള പ്രതിരോധം:** ഡീബഗ്ഗറുകൾ, Frida, എക്സിക്യൂഷൻ ട്രേസുകൾ, മെമ്മറി ഡമ്പുകൾ എന്നിവയിൽ നിന്ന് പ്രധാന ലോജിക്കും സ്ഥിരാംഗങ്ങളും സംരക്ഷിക്കുന്നു.
-- **100% · REA പിന്തുണയ്ക്കുന്ന എല്ലാ ലക്ഷ്യങ്ങളിലും പൂർണ്ണ പ്രതിരോധം:** നേറ്റീവ് ബൈനറികൾക്ക് (C/C++, Rust, Go) പുറമെ .NET, Java/Kotlin, JavaScript/Electron, Python, macOS (Mach-O/ARM64) എന്നിവയിലേക്കും സംരക്ഷണം വ്യാപിപ്പിക്കുന്നു.
+- **Core Algorithms & Business Logic:** Prevents proprietary calculations, data processing formulas, and core intellectual property from being decompiled, reverse-engineered, or cloned.
+- **Secret Data & Embedded Keys:** Protects sensitive API credentials, encryption keys, tokens, and proprietary constants from being extracted in plaintext from the binary.
+- **License & Authorization Checks:** Shields premium feature gates, expiration timers, and product activation checks against cracker bypasses, binary tampering, or forced branch flipping.
+- **Anti-Tampering & Memory Dump Defense:** Stops attackers from attaching debuggers, injecting hooks (such as Frida), or dumping live process memory to steal unpacked code.
+- **Internal Call Graphs & Execution Flow:** Conceals internal subroutines and API communication paths so competitors and analysts cannot trace the software's structural blueprint.
+- **Automated AI Cloning & REA Defense:** Directly neutralizes autonomous AI reverse-engineering agents like REA that inspect binaries to replicate and reimplement your features into competing projects.
 
 ---
+
+## Supported Programming Languages
+
+ANTI-REA supports core logic virtualization and hardening across a wide spectrum of native, managed, and dynamic languages:
+
+| Language | Environment / Runtime | Protection Mechanism | Deployment Form |
+|:---|:---|:---|:---|
+| **C / C++** | Clang / MSVC / LLVM | Native Polymorphic Register VM | Standalone Binary & Native DLL |
+| **Rust** | `rustc` / LLVM | Native Polymorphic Register VM | C-ABI & Native Core Library |
+| **Go** | Go 1.20+ (Typed Native) | Native VM + Facade Integration | Package Core Separation & Binary Link |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift Native VM + App Integration | Native App Core & Dynamic Library |
+| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | IL Lowering → Native VM | Managed App + Protected Native Core (P/Invoke) |
+| **Java** | OpenJDK 17+ / JVM | JVM Bytecode → Native VM | Java Application + JNI Native Core |
+| **Kotlin** | Kotlin 1.9+ / JVM | JVM Bytecode → Native VM | Kotlin App / JVM Service Core |
+| **Python** | Python 3.10 ~ 3.13 | Flattened Per-Function Stack VM | Pure Module & Mixed Module Bundle |
+| **JavaScript** | Node.js / Browser / Electron | Encoded Virtualized Stack VM | CommonJS Module & App Bundle |
+| **TypeScript** | TypeScript 5.x+ | TS Transpile + Encoded VM | Transpiled Bundle & Core Module |
+
+> [!TIP]
+> For detailed architectural contracts and language integration specifications, see [Multi-Language Development](../../docs/multilanguage-development.md).
+
+---
+
+## ANTI-REA Evolution Roadmap
+
+![ANTI-REA Cosmic Defense Roadmap](../assets/defense-roadmap.svg)
+
+- **Phase 1 · Focus on Static Binary Protection [COMPLETED]:** Protects compiled native binaries against static decompilation, Ghidra analysis, and direct formula recovery via control-flow virtualization and layered binary hardening.
+- **Phase 2 · Deep Static Hardening [ACTIVE]:** Extends static resilience by camouflaging handler boundaries, scrambling symbol relations, and concealing dispatcher internals.
+- **Phase 3 · Scaling Automated Attack Testers [NEXT]:** Continuously scales up autonomous attack agent instances, pitting new defense iterations against live automated testers every day to evolve defenses automatically.
+- **Phase 4 · ? [Classified]**
+- **Phase 5 · ? [Classified]**
+- **Phase 6 · ? [Classified]**
+- **Phase 7 · ? [The Frontier]**
+
+---
+
 
 ## വേഗത്തിൽ തുടങ്ങാം (Quick start)
 

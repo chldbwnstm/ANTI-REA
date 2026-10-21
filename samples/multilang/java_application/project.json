@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "java-app-core",
+  "language": "java",
+  "sources": ["Core.java"],
+  "methods": [
+    {"class": "sample.Core", "name": "scramble", "descriptor": "(II)I", "export": "java_scramble"},
+    {"class": "sample.Core", "name": "blend", "descriptor": "(JJ)J", "export": "java_blend"},
+    {"class": "sample.Core", "name": "narrow", "descriptor": "(JI)I", "export": "java_narrow"}
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "script_application_samples",
+  "cases": [
+    {
+      "label": "standard-discounted",
+      "args": ["--gross-cents", "2500", "--count", "3", "--fee-bps", "1000"],
+      "expect": {"returncode": 0, "stdout": "Statement: 3 items, net USD 67.50\nThank you for your business.\n"}
+    },
+    {
+      "label": "no-fee",
+      "args": ["--gross-cents", "1000", "--count", "2", "--fee-bps", "0"],
+      "expect": {"returncode": 0, "stdout": "Statement: 2 items, net USD 20.00\nThank you for your business.\n"}
+    },
+    {
+      "label": "single-item-rounded",
+      "args": ["--gross-cents", "999", "--count", "1", "--fee-bps", "250"],
+      "expect": {"returncode": 0, "stdout": "Statement: 1 items, net USD 9.74\nThank you for your business.\n"}
+    },
+    {
+      "label": "rejected-negative-amount",
+      "args": ["--gross-cents", "-1", "--count", "1", "--fee-bps", "0"],
+      "expect": {"returncode": 2, "stdout": ""}
+    }
+  ]
+}

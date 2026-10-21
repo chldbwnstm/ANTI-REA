@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "owned-typescript-application",
+  "language": "typescript",
+  "sources": ["app.ts"],
+  "functions": ["score"],
+  "protection_mode": "mixed_module"
+}

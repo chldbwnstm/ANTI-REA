@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "javascript-application-core",
+  "language": "javascript",
+  "sources": ["core.js"],
+  "functions": ["weigh", "combine", "atLeast"]
+}

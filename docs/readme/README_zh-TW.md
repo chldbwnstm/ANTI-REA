@@ -6,34 +6,66 @@
 
 **有想要保護的核心功能嗎？從二進位層面防止它被分析或複製。**
 
-[![Defense vs REA](https://img.shields.io/badge/Defense_vs_REA-25%25-4bbd9c?style=flat-square)](#當前防禦力與路線圖-testapp-vm-vs-真實-rea-攻擊)
-[![MCP + CLI](https://img.shields.io/badge/MCP-stdio_%2B_CLI-5c4ee5?style=flat-square)](#快速開始)
-[![Python requirements](https://img.shields.io/badge/Python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white)](#快速開始)
-[![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#支援的引擎)
+[![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_2_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
+[![Languages](https://img.shields.io/badge/Languages-11_Supported-007acc?style=flat-square)](#supported-programming-languages)
+[![MCP + CLI](https://img.shields.io/badge/MCP-stdio_%2B_CLI-5c4ee5?style=flat-square)](#quick-start)
+[![Python requirements](https://img.shields.io/badge/Python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white)](#quick-start)
+[![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#supported-engines)
 [![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../../LICENSE)
 
-像 [REA](https://github.com/morluto/rea) 這樣的逆向工程工具，只要你對代理（Agent）說*「分析一下那個應用裡的這個功能是怎麼運作的，並在我的專案裡照著做一個」*，它就會拆解二進位檔案並原樣重寫核心邏輯。
+Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agent inspect a binary when you ask *"Understand how this feature works in that app and build a copy for my project."*
 
-**代理式攻擊？那我們就用代理式防禦——隨著時間推移越來越強的防禦。** **ANTI-REA** 的最終目標是**徹底阻斷 REA 所能分析的一切目標與分析方式**。只需用自然語言對你的代理說：**「保護我程式的核心功能，防止被 REA 分析和複製」**，代理就會找出核心程式碼與周邊線索，套用混淆與虛擬化（VM），並檢查原有功能是否完好、測量執行速度相當於原來的百分之多少。
-
-你無需自己搭建複雜的攻防實驗環境。**我們每天都在讓防禦 PC 與獨立的 REA 攻擊 PC 對抗，觀察 TestApp 上的 VM 是如何被攻破的，修補弱點，打造隨時間推移越來越強的防禦。** 你只需將千錘百鍊的 ANTI-REA 連接到自己的代理即可使用。
+**Agentic attack? Meet agentic defense — defense that grows stronger over time.** The ultimate goal of **ANTI-REA** is to **block everything that REA can analyze**. Ask your agent in plain language — *"Protect the core logic in my program so REA can't analyze or clone it"* — and the agent locates your core functions and surrounding clues, applies obfuscation and virtualization (VM), verifies that behavior isn't broken, and measures what percentage of the original speed it runs at.
 
 ---
 
-## 當前防禦力與路線圖 (TestApp VM vs. 真實 REA 攻擊)
+## What Gets Protected in Your Software?
 
-![針對真實 REA 攻擊的 TestApp VM 防禦力 25%](../../docs/assets/defense-roadmap.svg)
-
-上面的數值不是抽象的開發進度，而是**套用了自研保護的 TestApp 在面對另一台 PC 上 REA 的直接攻擊時，實際能抵禦多少攻擊（防禦力）**。
-
-### 防禦力強化階段（最終目標：阻斷 REA 所能分析的一切）
-
-- **25%（當前）· 第一階段阻止靜態還原：** 從預設 VM 被輕易攻破起步，透過處理器多樣化與運算元上下文耦合，阻止外部 REA 靜態分析一次性還原核心計算公式。
-- **50% · 阻斷靜態分析與周邊上下文推斷：** 隱藏調度器內部輔助函式與呼叫圖周邊的殘留線索，使僅靠靜態反編譯無法推斷原始邏輯。
-- **75% · 動態追蹤與除錯防禦：** 當靜態分析受阻、攻擊代理動用除錯器、Frida、執行追蹤和記憶體傾印時，依然保護核心邏輯與常數不被輕易暴露。
-- **100% · 全面防禦 REA 支援的所有目標與路徑：** 不僅限於原生二進位（C/C++, Rust, Go），還將擴展到 .NET、Java/Kotlin、JavaScript/Electron、Python 以及 macOS（Mach-O/ARM64），在 REA 支援的所有目標和平台上阻斷其分析與重寫。
+- **Core Algorithms & Business Logic:** Prevents proprietary calculations, data processing formulas, and core intellectual property from being decompiled, reverse-engineered, or cloned.
+- **Secret Data & Embedded Keys:** Protects sensitive API credentials, encryption keys, tokens, and proprietary constants from being extracted in plaintext from the binary.
+- **License & Authorization Checks:** Shields premium feature gates, expiration timers, and product activation checks against cracker bypasses, binary tampering, or forced branch flipping.
+- **Anti-Tampering & Memory Dump Defense:** Stops attackers from attaching debuggers, injecting hooks (such as Frida), or dumping live process memory to steal unpacked code.
+- **Internal Call Graphs & Execution Flow:** Conceals internal subroutines and API communication paths so competitors and analysts cannot trace the software's structural blueprint.
+- **Automated AI Cloning & REA Defense:** Directly neutralizes autonomous AI reverse-engineering agents like REA that inspect binaries to replicate and reimplement your features into competing projects.
 
 ---
+
+## Supported Programming Languages
+
+ANTI-REA supports core logic virtualization and hardening across a wide spectrum of native, managed, and dynamic languages:
+
+| Language | Environment / Runtime | Protection Mechanism | Deployment Form |
+|:---|:---|:---|:---|
+| **C / C++** | Clang / MSVC / LLVM | Native Polymorphic Register VM | Standalone Binary & Native DLL |
+| **Rust** | `rustc` / LLVM | Native Polymorphic Register VM | C-ABI & Native Core Library |
+| **Go** | Go 1.20+ (Typed Native) | Native VM + Facade Integration | Package Core Separation & Binary Link |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift Native VM + App Integration | Native App Core & Dynamic Library |
+| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | IL Lowering → Native VM | Managed App + Protected Native Core (P/Invoke) |
+| **Java** | OpenJDK 17+ / JVM | JVM Bytecode → Native VM | Java Application + JNI Native Core |
+| **Kotlin** | Kotlin 1.9+ / JVM | JVM Bytecode → Native VM | Kotlin App / JVM Service Core |
+| **Python** | Python 3.10 ~ 3.13 | Flattened Per-Function Stack VM | Pure Module & Mixed Module Bundle |
+| **JavaScript** | Node.js / Browser / Electron | Encoded Virtualized Stack VM | CommonJS Module & App Bundle |
+| **TypeScript** | TypeScript 5.x+ | TS Transpile + Encoded VM | Transpiled Bundle & Core Module |
+
+> [!TIP]
+> For detailed architectural contracts and language integration specifications, see [Multi-Language Development](../../docs/multilanguage-development.md).
+
+---
+
+## ANTI-REA Evolution Roadmap
+
+![ANTI-REA Cosmic Defense Roadmap](../assets/defense-roadmap.svg)
+
+- **Phase 1 · Focus on Static Binary Protection [COMPLETED]:** Protects compiled native binaries against static decompilation, Ghidra analysis, and direct formula recovery via control-flow virtualization and layered binary hardening.
+- **Phase 2 · Deep Static Hardening [ACTIVE]:** Extends static resilience by camouflaging handler boundaries, scrambling symbol relations, and concealing dispatcher internals.
+- **Phase 3 · Scaling Automated Attack Testers [NEXT]:** Continuously scales up autonomous attack agent instances, pitting new defense iterations against live automated testers every day to evolve defenses automatically.
+- **Phase 4 · ? [Classified]**
+- **Phase 5 · ? [Classified]**
+- **Phase 6 · ? [Classified]**
+- **Phase 7 · ? [The Frontier]**
+
+---
+
 
 ## 快速開始
 
@@ -78,20 +110,20 @@
 
 ---
 
-## 支援的引擎
+## Current Defense vs. Live REA Attacks
 
-雖然內建的免費開源引擎（`ANTI-REA Engine`）每天都在變強，但**如果你眼下就需要更強的保護，可以購買商業版 Themida、VMProtect 或 Code Virtualizer 並接入 ANTI-REA，然後直接用自然語言告訴代理你期望的執行效能（速度保持率）和防禦強度即可。**
+![ANTI-REA Defense Strength vs. REA 25%](../assets/defense-roadmap.svg)
 
-```text
-使用 VMProtect（或 Themida / Code Virtualizer），在保持執行速度不低於原版 80% 的同時，盡可能高強度地保護核心邏輯。
-```
+This gauge represents **how well our protected TestApp holds up against direct attacks from REA on a separate environment**, actively battle-tested every day.
 
-| 引擎 | 連接方式 | 當前狀態 |
-|---|---|---|
-| **ANTI-REA Engine** | C++/LLVM 建置與防禦管線 | 已在 Windows x86-64 C++ 樣本上套用真實 VM、自動檢驗功能與效能，並每日迭代加固 |
-| **Themida** | 防禦 MCP/CLI（`.tmd`/`.tm`） | Windows 原生 x86/x64 PE 轉接器已實作（需本地安裝商業版） |
-| **VMProtect** | 防禦 MCP/CLI（`.vmp`） | Windows 原生 x86/x64 PE 轉接器已實作（需本地安裝商業版） |
-| **Code Virtualizer** | 防禦 MCP/CLI（`.cv`） | Windows 原生 x86/x64 PE 轉接器已實作（支援 Legacy / v4，需本地安裝） |
+### Protected Capabilities & Defense Scope
+
+- **Core Logic & Algorithm Virtualization (ANTI-REA VM):** Compiles sensitive functions and control flow into a 16-bit polymorphic register-fused VM bytecode with dynamic operand context encryption, entirely eliminating raw x86/x64 machine instructions.
+- **Silent Anti-Debug Key Poisoning:** Detects PEB BeingDebugged directly without IAT imports. Rather than exiting with an obvious exit() branch, it silently corrupts the VM key derivation when attached by debuggers or Frida, yielding garbage bytecode decoding without tipping off the analyst.
+- **Self-Checksumming & Anti-Tampering (Hash-to-Key Binding):** Binds bytecode header integrity and prologue invariants directly into runtime key generation, preventing in-memory patching, inline hooks, and software breakpoints.
+- **Mixed Boolean-Arithmetic (MBA) & Opaque Predicates:** Synthesizes polynomial boolean-algebraic identities and number-theoretic opaque predicates into VM handlers and expressions, neutralizing decompilers (Ghidra, IDA) and automated LLM-based formula recovery.
+- **Encrypted Constant Pools & IAT API Hiding:** Encrypts sensitive constants and signature strings via a rolling stream cipher decrypted only on the stack on demand, resolving system calls dynamically via symbol hashes to keep the Import Address Table clean.
+- **Anti-LLM Honeypots & Decoy Ciphers:** Injects realistic decoy Feistel ciphers and fake S-box constant tables behind opaque never-taken branches, forcing autonomous AI reverse-engineering agents like REA to waste analysis time and token budgets on decoys.
 
 ---
 

@@ -16,13 +16,22 @@ import json
 from pathlib import Path
 import random
 import re
+import sys
+from typing import Iterable
 
-from .hardening import (
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from antirea.hardening import (
     HARDENING_LAYERS,
+    compute_bytecode_integrity_tag,
     compute_header_integrity_tag,
+    derive_multi_vm_seeds,
     emit_llvm_ir_honeypot,
     emit_runtime_hardening_helpers,
     hardening_parameters,
+    hardening_capabilities,
+    selected_layers,
 )
 
 
@@ -158,7 +167,10 @@ def fuse(instructions: list[Instruction]) -> list[Instruction]:
             candidate = Instruction(tail[0].offset, "F_ARG", (tail[2].values[0], tail[0].values[0]), (1, 1), 3)
             count = 3
         elif len(tail) >= 2 and tail[1].name == "OP_POP_REG":
-            if tail[0].name in {"OP_PUSH_REG", "OP_LOAD_ARG"}:
+            if tail[0].name == "OP_SELECT":
+                candidate = Instruction(tail[0].offset, "F_SELECT", (tail[1].values[0],), (1,), 2)
+                count = 2
+            elif tail[0].name in {"OP_PUSH_REG", "OP_LOAD_ARG"}:
                 name = "F_MOV" if tail[0].name == "OP_PUSH_REG" else "F_ARG"
                 candidate = Instruction(tail[0].offset, name, (tail[1].values[0], tail[0].values[0]), (1, 1), 2)
                 count = 2
@@ -195,7 +207,11 @@ def fuse_chains(instructions: list[Instruction], targets: set[int]) -> list[Inst
     return result
 
 
-def parameters(seed: int, names: set[str], *, enable_hardening: bool = True) -> dict:
+def parameters(seed: int, names: set[str], *, enable_hardening: bool = True,
+               enabled_layers: Iterable[str] | None = None) -> dict:
+    chosen = selected_layers(HARDENING_LAYERS if enabled_layers is None else enabled_layers)
+    if not enable_hardening and enabled_layers is not None and chosen:
+        raise ValueError("enable_hardening=False conflicts with nonempty enabled_layers")
     rng = random.Random(seed)
     tokens = rng.sample(range(0x100, 0xffff), len(names))
     result = {"tokens": dict(zip(sorted(names), tokens)), "multiply": rng.getrandbits(32) | 1,
@@ -203,7 +219,7 @@ def parameters(seed: int, names: set[str], *, enable_hardening: bool = True) -> 
               "rotate": rng.randrange(7), "header": [rng.randrange(256) for _ in range(3)],
               "operand_multiply": rng.getrandbits(32) | 1, "operand_add": rng.getrandbits(32)}
     if enable_hardening:
-        result["hardening"] = hardening_parameters(seed)
+        result["hardening"] = hardening_parameters(seed, enabled_layers=chosen)
     return result
 
 
@@ -265,6 +281,9 @@ def fused_body(name: str) -> str:
         body = "uint8_t d=bc_u8(&f), s=bc_u8(&f); f.regs[d]=(s<f.nargs)?f.args[s]:0;"
     elif name == "F_CONST":
         body = "uint8_t d=bc_u8(&f); f.regs[d]=bc_u64(&f);"
+    elif name == "F_SELECT":
+        body = ("uint8_t d=bc_u8(&f); "
+                "uint64_t fv=vm_pop(&f), tv=vm_pop(&f), c=vm_pop(&f); f.regs[d]=c?tv:fv;")
     else:
         mode, operation = name[2:].split("_", 1)
         expression = FUSED_EXPRESSIONS["OP_" + operation]
@@ -296,9 +315,14 @@ def specialize_runtime(source: str, params: dict, symbol: str) -> str:
     hardening_prelude = ""
     if isinstance(params.get("hardening"), dict):
         hardening_prelude = emit_runtime_hardening_helpers(params["hardening"]) + "\n"
-    fetch = hardening_prelude + f"""static __attribute__((always_inline)) inline uint8_t bc_raw8(VMFrame *f) {{
+    fetch = hardening_prelude + f"""/* Check a complete scalar read before touching its first byte. Subtraction is
+ * guarded against underflow; no unchecked reader is an external entry point. */
+static __attribute__((always_inline)) inline void bc_require(VMFrame *f, uint32_t width) {{
+    if (__builtin_expect(f->pc > f->bc_size || width > f->bc_size-f->pc, 0)) abort();
+}}
+
+static __attribute__((always_inline)) inline uint8_t bc_raw8_unchecked(VMFrame *f) {{
     uint32_t p=f->pc;
-    if (__builtin_expect(p >= f->bc_size, 0)) abort();
     f->pc=p+1;
     uint32_t t=p*{params['multiply']}u+{params['add']}u;
     t ^= t >> 13; t *= {params['mix']}u; t ^= t >> 17;
@@ -310,46 +334,66 @@ def specialize_runtime(source: str, params: dict, symbol: str) -> str:
 }}
 
 static __attribute__((always_inline)) inline uint16_t bc_opcode(VMFrame *f) {{
+    bc_require(f, 2u);
     uint32_t start=f->pc;
-    uint16_t hi=bc_raw8(f);
-    uint16_t op=(uint16_t)((hi << 8) | bc_raw8(f));
+    uint16_t hi=bc_raw8_unchecked(f);
+    uint16_t op=(uint16_t)((hi << 8) | bc_raw8_unchecked(f));
     f->operand_state=(start*{params['operand_multiply']}u) ^ op ^ (uint32_t)f->key
                      ^ (uint32_t)(f->key >> 32) ^ {params['operand_add']}u;
     return op;
 }}
 
-static __attribute__((always_inline)) inline uint8_t bc_u8(VMFrame *f) {{
+static __attribute__((always_inline)) inline uint8_t bc_u8_unchecked(VMFrame *f) {{
     uint32_t s=f->operand_state;
-    uint8_t v=(uint8_t)(bc_raw8(f) ^ (uint8_t)(s ^ (s >> 11) ^ (s >> 23)));
+    uint8_t v=(uint8_t)(bc_raw8_unchecked(f) ^ (uint8_t)(s ^ (s >> 11) ^ (s >> 23)));
     uint32_t rotated=(s << 5) | (s >> 27);
     f->operand_state=rotated*{params['operand_multiply']}u+v+{params['operand_add']}u;
     return v;
 }}
 
+static __attribute__((always_inline)) inline uint8_t bc_u8(VMFrame *f) {{
+    bc_require(f, 1u); return bc_u8_unchecked(f);
+}}
+static __attribute__((always_inline)) inline uint16_t bc_u16_unchecked(VMFrame *f) {{
+    uint16_t hi=bc_u8_unchecked(f); return (uint16_t)((hi << 8) | bc_u8_unchecked(f));
+}}
+static __attribute__((always_inline)) inline uint32_t bc_u32_unchecked(VMFrame *f) {{
+    uint32_t hi=bc_u16_unchecked(f); return (hi << 16) | bc_u16_unchecked(f);
+}}
 static __attribute__((always_inline)) inline uint16_t bc_u16(VMFrame *f) {{
-    uint16_t hi=bc_u8(f); return (uint16_t)((hi << 8) | bc_u8(f));
+    bc_require(f, 2u); return bc_u16_unchecked(f);
 }}
 static __attribute__((always_inline)) inline uint32_t bc_u32(VMFrame *f) {{
-    uint32_t hi=bc_u16(f); return (hi << 16) | bc_u16(f);
+    bc_require(f, 4u); return bc_u32_unchecked(f);
 }}
 static __attribute__((always_inline)) inline uint64_t bc_u64(VMFrame *f) {{
-    uint64_t hi=bc_u32(f); return (hi << 32) | bc_u32(f);
+    bc_require(f, 8u);
+    uint64_t hi=bc_u32_unchecked(f); return (hi << 32) | bc_u32_unchecked(f);
 }}
 """
     start = source.index("static inline uint8_t bc_u8")
     end = source.index("/* ── Width helpers", start)
     source = source[:start] + fetch + "\n" + source[end:]
     source = source.replace("uint64_t kagura_vm_execute(", f"uint64_t {symbol}(")
+    integrity_call = ("    if (!antirea_check_bytecode_integrity(bytecode, bc_size, key)) abort();\n"
+                      if "antirea_check_bytecode_integrity" in hardening_prelude else "")
+    count = source.count("    VMFrame f;")
     source = source.replace("    VMFrame f;", (
         "    /* A format-version guard, not an authenticity or secrecy claim. */\n"
         f"    if (bc_size<4 || bytecode[0]!=(uint8_t)(key^0xfeu) || bytecode[1]!={params['header'][0]}u"
-        f" || bytecode[2]!={params['header'][1]}u || bytecode[3]!={params['header'][2]}u) abort();\n    VMFrame f;"))
+        f" || bytecode[2]!={params['header'][1]}u || bytecode[3]!={params['header'][2]}u) abort();\n"
+        + integrity_call + "    VMFrame f;"))
+    if count != 1:
+        raise ValueError("Pinned runtime frame initialization not found exactly once")
     source = source.replace("f.pc      = 0;", "f.pc      = 4;")
-    if isinstance(params.get("hardening"), dict):
-        source = source.replace(
-            "f.key     = key;",
+    if "antirea_env_and_tamper_guard" in hardening_prelude:
+        source, count = re.subn(
+            re.escape("f.key     = key;"),
             "f.key     = key ^ (uint64_t)antirea_env_and_tamper_guard(bytecode, bc_size, (uint32_t)key);",
+            source,
         )
+        if count != 1:
+            raise ValueError("Pinned runtime key initialization not found exactly once")
     source = source.replace("uint8_t op = bc_u8(&f);", "uint16_t op = bc_opcode(&f);")
     loop = source.index("        switch (op) {")
     end = source.index("        default: abort();", loop)
@@ -376,7 +420,9 @@ static __attribute__((always_inline)) inline uint64_t bc_u64(VMFrame *f) {{
             " * the upstream descriptive comments. Not cryptographic secrecy. */\n" + source)
 
 
-def transform_ir(ir: str, table: dict[int, str], seed: int, *, enable_hardening: bool = True) -> tuple[str, dict]:
+def _transform_shared_ir(ir: str, table: dict[int, str], seed: int, *, enable_hardening: bool = True,
+                         enabled_layers: Iterable[str] | None = None,
+                         require_fusion: bool = True) -> tuple[str, dict]:
     blobs = list(re.finditer(r'^@(kagura_vm_bc_(\d+)) = private constant \[(\d+) x i8\] c"([^"\n]*)"', ir, re.M))
     if not blobs:
         raise ValueError("No supported Kagura bytecode globals")
@@ -394,9 +440,11 @@ def transform_ir(ir: str, table: dict[int, str], seed: int, *, enable_hardening:
         fused = fuse(instructions)
         plans.append((match, data, key, instructions, fused))
     names = {item.name for _, _, _, _, items in plans for item in items}
-    params = parameters(seed, names, enable_hardening=enable_hardening)
+    params = parameters(seed, names, enable_hardening=enable_hardening, enabled_layers=enabled_layers)
+    chosen = params.get("hardening", {}).get("enabled_layers", [])
     symbol = f"antirea_dispatch_{seed & 0xffffffffffffffff:016x}"
     records = []
+    integrity_bindings = {}
     for match, data, key, instructions, fused in reversed(plans):
         encoded, relocations = emit(fused, key, params)
         name = match.group(1)
@@ -414,15 +462,25 @@ def transform_ir(ir: str, table: dict[int, str], seed: int, *, enable_hardening:
                        "original_sha256": sha256(data), "encoded_sha256": sha256(encoded),
                        "relocated_branch_targets": sum(item.name in JUMPS for item in fused),
                        "stock_first_opcode_after_original_xor": encoded[0] ^ (key & 255)}
-        if isinstance(params.get("hardening"), dict):
+        if "anti_tamper" in chosen:
             blob_record["header_integrity_tag"] = compute_header_integrity_tag(
                 encoded, params["hardening"]["tamper_seed"], params["hardening"]["tamper_prime"]
             )
+            blob_record["header_integrity_tag_role"] = "diagnostic only; runtime binds full encoded bytecode and length"
+            blob_record["bytecode_integrity_tag"] = compute_bytecode_integrity_tag(
+                encoded, params["hardening"]["tamper_seed"], params["hardening"]["tamper_prime"])
+            identity = (key, len(encoded))
+            if identity in integrity_bindings and integrity_bindings[identity]["encoded_sha256"] != sha256(encoded):
+                raise ValueError("Ambiguous bytecode integrity binding: same key/length for different blobs")
+            integrity_bindings[identity] = {"key": key, "bytes": len(encoded),
+                                            "tag": blob_record["bytecode_integrity_tag"], "encoded_sha256": sha256(encoded)}
         records.append(blob_record)
-    if not any(record["fused_groups"] for record in records):
+    if require_fusion and not any(record["fused_groups"] for record in records):
         raise ValueError("No meaningful fusion applied; refusing diversification claim")
     ir = ir.replace("@kagura_vm_execute", "@" + symbol)
-    if enable_hardening:
+    if "anti_tamper" in chosen:
+        params["hardening"]["bytecode_integrity"] = [integrity_bindings[key] for key in sorted(integrity_bindings)]
+    if "anti_llm_honeypot" in chosen:
         ir = ir.rstrip() + "\n" + emit_llvm_ir_honeypot(seed)
     manifest = {"schema_version": 1, "format_version": FORMAT_VERSION, "seed": seed,
                 "dispatcher_symbol": symbol, "parameters": params, "blobs": list(reversed(records)),
@@ -432,12 +490,17 @@ def transform_ir(ir: str, table: dict[int, str], seed: int, *, enable_hardening:
                 "fetch_encoding": "position/key-dependent rotate/add/xor; reversible, not encryption security",
                 "operand_encoding": "instruction-position/opcode/key context with plaintext feedback; resets at every instruction",
                 "fetch_inlined_in_dispatcher": True,
+                "fetch_bounds_check": "overflow-safe complete scalar span before byte decoding; same per-byte codec and feedback",
                 "semantic_helpers_inlined_in_dispatcher": list(INTEGRATED_HELPERS),
-                "hardening_layers": list(HARDENING_LAYERS) if enable_hardening else [],
+                "hardening_layers": [],
+                "hardening_layers_semantics": "Legacy applied-layer list; generation alone verifies no applied layer.",
+                "requested_hardening_layers": list(chosen),
                 "external_attack_evaluation": "not_evaluated",
                 "limitations": ["Generated ISA and decoder remain present in the delivered executable.",
                                 "No cryptographic secrecy, anti-analysis guarantee or resistance result is claimed.",
                                 "Only the pinned supported Kagura IR/bytecode format is accepted."]}
+    manifest["hardening_capabilities"] = hardening_capabilities(params.get("hardening"), core_ir=ir,
+                                                                dispatcher_symbol=symbol, blob_count=len(records))
     chains = sum(count for record in records for name, count in record['fusion_counts'].items()
                  if name.startswith('F_CHAIN_'))
     if chains:
@@ -447,13 +510,209 @@ def transform_ir(ir: str, table: dict[int, str], seed: int, *, enable_hardening:
     return ir, manifest
 
 
-def generate(input_ir: Path, runtime_source: Path, opcode_source: Path, output_dir: Path, seed: int) -> dict:
+_FUNCTION = re.compile(r'(?ms)^define\s+[^\r\n]*@([A-Za-z_][A-Za-z0-9_.$]*)\([^\r\n]*\)[^\r\n]*\{\r?\n.*?^\}')
+_BLOB = re.compile(r'^@(kagura_vm_bc_(\d+)) = private constant \[(\d+) x i8\] c"([^"\r\n]*)"', re.M)
+_IDENTIFIER = re.compile(r'[A-Za-z_][A-Za-z0-9_.$]*\Z')
+
+
+def codec_fingerprint(params: dict) -> str:
+    """Fingerprint the actual opcode/fetch/operand contract, not helper salts."""
+    codec = {name: params[name] for name in
+             ("tokens", "multiply", "add", "mix", "rotate", "header", "operand_multiply", "operand_add")}
+    return sha256(json.dumps(codec, sort_keys=True, separators=(",", ":")).encode())
+
+
+def _namespace_runtime(source: str, dispatcher: str, prefix: str) -> str:
+    # Pinned runtime identifiers only. External CRT/intrinsics remain shared;
+    # each VM's frame types, helpers, enum names and optional checks are private.
+    pattern = r'\b(?:vm_\w+|bc_\w+|VM\w*|OP_\w+|F_\w+|antirea_\w+)\b'
+    return re.sub(pattern, lambda match: match.group() if match.group() == dispatcher
+                  else prefix + match.group(), source)
+
+
+def runtime_for_manifest(source: str, manifest: dict) -> str:
+    """Emit one TU, retaining a separate decoder and dispatcher for every engine."""
+    if manifest.get("engine_mode") != "per_function_indirect":
+        return specialize_runtime(source, manifest["parameters"], manifest["dispatcher_symbol"])
+    return "\n\n".join(_namespace_runtime(
+        specialize_runtime(source, engine["parameters"], engine["dispatcher_symbol"]),
+        engine["dispatcher_symbol"], engine["namespace_prefix"])
+        for engine in manifest["engines"])
+
+
+def _transform_multi_ir(ir: str, table: dict[int, str], seed: int, chosen: tuple[str, ...]) -> tuple[str, dict]:
+    blobs = list(_BLOB.finditer(ir))
+    functions = list(_FUNCTION.finditer(ir))
+    if len({match.group(1) for match in functions}) != len(functions):
+        raise ValueError("Duplicate function definitions in VM input")
+    declaration = re.findall(r'(?m)^declare i64 @kagura_vm_execute\([^\r\n]+$', ir)
+    if len(declaration) != 1:
+        raise ValueError("Multi-VM requires exactly one supported stock dispatcher declaration")
+    replacements, slots, engines, records, shared = [], [], [], [], None
+    used_functions = set()
+    for blob, parameter_seed in zip(blobs, derive_multi_vm_seeds(seed, len(blobs))):
+        name, suffix = blob.group(1), blob.group(2)
+        owners = [function for function in functions if re.search(
+            r'@kagura_vm_execute\(ptr @' + re.escape(name) + r',', function.group())]
+        if len(owners) != 1 or owners[0].group(1) in used_functions:
+            raise ValueError("Multi-VM requires one distinct wrapper function per blob")
+        owner = owners[0]
+        used_functions.add(owner.group(1))
+        key = re.search(r'^@kagura_vm_key_' + suffix + r' = private constant i64 -?\d+$', ir, re.M)
+        if key is None:
+            raise ValueError("Unsupported key expression")
+        fragment = '\n'.join((blob.group(), key.group(), owner.group(), declaration[0])) + '\n'
+        converted, single = _transform_shared_ir(fragment, table, parameter_seed,
+                                                  enabled_layers=chosen, require_fusion=False)
+        symbol = single["dispatcher_symbol"]
+        tag = f'{parameter_seed:016x}'
+        slot, local, prefix = f'antirea_vm_slot_{tag}', f'antirea_vm_target_{tag}', f'antirea_e_{tag}_'
+        if re.search(r'[@%](?:' + '|'.join(map(re.escape, (slot, local, symbol))) + r')\b', ir):
+            raise ValueError("Generated VM identifier collides with source")
+        wrapper = _FUNCTION.search(converted).group()
+        call = re.search(r'(?m)^(\s*)(%[-\w.$]+ = (?:tail )?call i64 )@' + symbol + r'\(', wrapper)
+        if call is None:
+            raise ValueError("Unsupported wrapper call for indirect dispatch")
+        replacement = (call.group(1) + f'%{local} = load volatile ptr, ptr @{slot}, align 8\n'
+                       + call.group(1) + call.group(2) + f'%{local}(')
+        wrapper = wrapper[:call.start()] + replacement + wrapper[call.end():]
+        replacements.extend([(blob.start(), blob.end(), _BLOB.search(converted).group()),
+                             (owner.start(), owner.end(), wrapper)])
+        slots.append(f'@{slot} = internal global ptr @{symbol}, align 8')
+        engines.append({"function": owner.group(1), "blob_global": name, "dispatcher_symbol": symbol,
+                        "dispatch_slot": slot, "integrity_checker_symbol": prefix + "antirea_check_bytecode_integrity",
+                        "namespace_prefix": prefix, "parameter_seed": parameter_seed,
+                        "parameters": single["parameters"], "used_handlers": single["used_handlers"],
+                        "codec_sha256": codec_fingerprint(single["parameters"])})
+        records.append(single["blobs"][0])
+        if shared is None:
+            shared = single
+    if not any(record["fused_groups"] for record in records):
+        raise ValueError("No meaningful fusion applied; refusing diversification claim")
+    for start, stop, replacement in sorted(replacements, reverse=True):
+        ir = ir[:start] + replacement + ir[stop:]
+    declarations = '\n'.join(declaration[0].replace('@kagura_vm_execute', '@' + e["dispatcher_symbol"]) for e in engines)
+    ir = ir.replace(declaration[0], '\n'.join(slots) + '\n' + declarations)
+    if '@kagura_vm_execute' in ir:
+        raise ValueError("Unclaimed stock dispatcher reference in multi-VM input")
+    if "anti_llm_honeypot" in chosen:
+        ir = ir.rstrip() + '\n' + emit_llvm_ir_honeypot(seed)
+    manifest = dict(shared)
+    manifest.update(seed=seed, blobs=records, engine_mode="per_function_indirect", engines=engines,
+                    dispatcher_symbols=[e["dispatcher_symbol"] for e in engines],
+                    used_handlers=sorted({name for e in engines for name in e["used_handlers"]}),
+                    legacy_alias_semantics="dispatcher_symbol and parameters refer only to the first engine; use engines for all functions")
+    manifest.pop("chained_register_fusion", None)
+    chains = sum(n for record in records for name, n in record["fusion_counts"].items() if name.startswith('F_CHAIN_'))
+    if chains:
+        manifest["chained_register_fusion"] = {"groups": chains, "operations_per_group": 2,
+            "semantics": "sequential direct expressions with both intermediate register writes retained"}
+    manifest["limitations"] = list(manifest["limitations"]) + [
+        "Per-function engines are deterministic diversification, not cryptographic independence.",
+        "Volatile function-pointer slots and all decoder parameters remain recoverable in the artifact."]
+    inspect_vm_bindings(ir, manifest)
+    manifest["hardening_capabilities"] = hardening_capabilities(
+        manifest["parameters"].get("hardening"), core_ir=ir, dispatcher_symbol=manifest["dispatcher_symbol"],
+        blob_count=len(records), vm_engines=engines)
+    return ir, manifest
+
+
+def transform_ir(ir: str, table: dict[int, str], seed: int, *, enable_hardening: bool = True,
+                 enabled_layers: Iterable[str] | None = None) -> tuple[str, dict]:
+    requested = selected_layers(HARDENING_LAYERS if enabled_layers is None else enabled_layers)
+    if not enable_hardening and enabled_layers is not None and requested:
+        raise ValueError("enable_hardening=False conflicts with nonempty enabled_layers")
+    chosen = requested if enable_hardening else ()
+    if "multi_vm_indirect_dispatch" in chosen and len(_BLOB.findall(ir)) > 1:
+        return _transform_multi_ir(ir, table, seed, chosen)
+    # Preserve the old manifest and direct-call shape for single-function and
+    # explicitly disabled multi-VM builds.
+    return _transform_shared_ir(ir, table, seed, enable_hardening=enable_hardening, enabled_layers=chosen)
+
+
+def inspect_vm_bindings(core_ir: str, manifest: dict) -> dict[str, dict]:
+    """Fail closed on missing/mismatched per-function VM bindings in supplied IR.
+
+    This checks generated or retained IR, not executable linkage or resistance.
+    Callers must also compare the result's function set to their selection plan.
+    """
+    if manifest.get("engine_mode") != "per_function_indirect":
+        raise ValueError("VM binding inspection requires a per-function indirect manifest")
+    engines, blobs = manifest.get("engines"), manifest.get("blobs")
+    if not isinstance(engines, list) or len(engines) < 2 or not isinstance(blobs, list) or len(blobs) != len(engines):
+        raise ValueError("Invalid multi-VM engine/blob manifest")
+    if any(not isinstance(engine, dict) for engine in engines) or any(not isinstance(record, dict) for record in blobs):
+        raise ValueError("Invalid multi-VM manifest entries")
+    for field in ("function", "blob_global", "dispatcher_symbol", "dispatch_slot"):
+        values = [engine.get(field) for engine in engines]
+        if any(not isinstance(value, str) or not _IDENTIFIER.fullmatch(value) for value in values) or len(set(values)) != len(values):
+            raise ValueError(f"Invalid or duplicate multi-VM {field}")
+    try:
+        fingerprints = [codec_fingerprint(e["parameters"]) for e in engines]
+    except (KeyError, TypeError) as exc:
+        raise ValueError("Invalid VM codec parameters") from exc
+    if len(set(fingerprints)) != len(engines) or fingerprints != [e.get("codec_sha256") for e in engines]:
+        raise ValueError("VM codec parameters are not independently distinct or correctly bound")
+    if manifest.get("dispatcher_symbols") != [e["dispatcher_symbol"] for e in engines]:
+        raise ValueError("Dispatcher list does not match engines")
+    try:
+        record_map = {record["global"]: record for record in blobs}
+    except (KeyError, TypeError) as exc:
+        raise ValueError("Invalid VM blob records") from exc
+    blob_matches = list(_BLOB.finditer(core_ir))
+    actual_blobs = {match.group(1): match for match in blob_matches}
+    if len(record_map) != len(blobs) or len(actual_blobs) != len(blob_matches):
+        raise ValueError("Duplicate VM blob records or definitions")
+    if set(record_map) != {e["blob_global"] for e in engines} or set(actual_blobs) != set(record_map):
+        raise ValueError("VM blob sets do not match")
+    function_matches = list(_FUNCTION.finditer(core_ir))
+    functions = {match.group(1): match.group() for match in function_matches}
+    if len(functions) != len(function_matches):
+        raise ValueError("Duplicate function definitions in VM artifact")
+    result = {}
+    for engine in engines:
+        name, symbol, slot, blob = (engine[k] for k in ("function", "dispatcher_symbol", "dispatch_slot", "blob_global"))
+        record, match = record_map[blob], actual_blobs[blob]
+        data = llvm_bytes(match.group(4))
+        if len(data) != int(match.group(3)) or len(data) != record["encoded_bytes"] or sha256(data) != record["encoded_sha256"]:
+            raise ValueError("VM blob content/length/hash mismatch")
+        slot_pattern = r'(?m)^@' + re.escape(slot) + r' = internal (?:local_unnamed_addr )?global ptr @' + re.escape(symbol) + r'(?:,|\s*$)'
+        if len(re.findall(slot_pattern, core_ir)) != 1:
+            raise ValueError("Missing or changed VM dispatcher slot initializer")
+        body = functions.get(name, "")
+        loads = list(re.finditer(r'(%[-\w.$]+) = load volatile ptr, ptr @' + re.escape(slot) + r'\b', body))
+        if len(loads) != 1:
+            raise ValueError("Missing unique volatile VM dispatcher load")
+        call_pattern = (r'\bcall i64 ' + re.escape(loads[0].group(1)) + r'\(ptr (?:nonnull )?@'
+                        + re.escape(blob) + r', i32 ' + str(len(data)) + r'\b')
+        calls = list(re.finditer(call_pattern, body))
+        if len(calls) != 1 or calls[0].start() < loads[0].end():
+            raise ValueError("Missing unique indirect call with bound VM bytecode")
+        if any(re.search(r'@' + re.escape(other["dispatch_slot"]) + r'\b', body)
+               for other in engines if other is not engine):
+            raise ValueError("Wrapper refers to another VM dispatcher slot")
+        result[name] = {"virtualized": True, "dispatcher": symbol, "dispatch_slot": slot,
+                        "dispatch_mode": "volatile_function_pointer", "bytecode_global": blob,
+                        "bytecode_size": len(data), "encoded_sha256": sha256(data),
+                        "codec_sha256": engine["codec_sha256"]}
+    return result
+
+
+def generate(input_ir: Path, runtime_source: Path, opcode_source: Path, output_dir: Path, seed: int, *,
+             enabled_layers: Iterable[str] | None = None, enable_hardening: bool = True) -> dict:
     runtime_bytes, opcode_bytes = runtime_source.read_bytes(), opcode_source.read_bytes()
     if sha256(runtime_bytes) != RUNTIME_SHA256 or sha256(opcode_bytes) != OPCODES_SHA256:
         raise ValueError("Upstream runtime/opcode source does not match pinned build input")
     ir_bytes = input_ir.read_bytes()
-    ir, manifest = transform_ir(ir_bytes.decode("utf-8-sig"), opcode_table(opcode_bytes.decode("utf-8")), seed)
-    runtime = specialize_runtime(runtime_bytes.decode("utf-8"), manifest["parameters"], manifest["dispatcher_symbol"])
+    ir, manifest = transform_ir(ir_bytes.decode("utf-8-sig"), opcode_table(opcode_bytes.decode("utf-8")), seed,
+                                enabled_layers=enabled_layers, enable_hardening=enable_hardening)
+    runtime = runtime_for_manifest(runtime_bytes.decode("utf-8"), manifest)
+    manifest["hardening_capabilities"] = hardening_capabilities(
+        manifest["parameters"].get("hardening"), runtime_source=runtime, core_ir=ir,
+        dispatcher_symbol=manifest["dispatcher_symbol"], blob_count=len(manifest["blobs"]),
+        vm_engines=manifest.get("engines"))
+    manifest["source_emitted_hardening_layers"] = [name for name, state in manifest["hardening_capabilities"]["layers"].items()
+                                                   if state["source_emitted"]]
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = [output_dir / name for name in ("core.diversified.ll", "runtime.generated.c", "diversification.json")]
     if any(path.exists() for path in paths):
@@ -474,8 +733,12 @@ def main() -> int:
     parser.add_argument("--opcode-source", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--hardening-layer", action="append", choices=HARDENING_LAYERS,
+                        help="Select specific optional components (repeatable); default requests all legacy names, including explicit gaps.")
+    parser.add_argument("--no-hardening", action="store_true")
     args = parser.parse_args()
-    result = generate(args.input_ir, args.runtime_source, args.opcode_source, args.output_dir, args.seed)
+    result = generate(args.input_ir, args.runtime_source, args.opcode_source, args.output_dir, args.seed,
+                      enabled_layers=args.hardening_layer, enable_hardening=not args.no_hardening)
     print(json.dumps({key: result[key] for key in ("dispatcher_symbol", "blobs", "external_attack_evaluation")}, indent=2))
     return 0
 

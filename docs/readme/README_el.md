@@ -6,34 +6,66 @@
 
 **Έχετε μια κρίσιμη λειτουργία που θέλετε να προστατεύσετε; Αποτρέψτε την ανάλυση και την αντιγραφή της μέχρι το δυαδικό επίπεδο.**
 
-[![Defense vs REA](https://img.shields.io/badge/Defense_vs_REA-25%25-4bbd9c?style=flat-square)](#roadmap)
+[![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_2_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
+[![Languages](https://img.shields.io/badge/Languages-11_Supported-007acc?style=flat-square)](#supported-programming-languages)
 [![MCP + CLI](https://img.shields.io/badge/MCP-stdio_%2B_CLI-5c4ee5?style=flat-square)](#quick-start)
 [![Python requirements](https://img.shields.io/badge/Python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white)](#quick-start)
-[![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#engines)
+[![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#supported-engines)
 [![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../../LICENSE)
 
-Εργαλεία αντίστροφης μηχανικής όπως το [REA](https://github.com/morluto/rea) επιτρέπουν σε έναν πράκτορα (agent) να αναλύσει ένα εκτελέσιμο αρχείο και να ανακατασκευάσει την ακριβή λογική του όταν του ζητήσετε: *«Κατανόησε πώς λειτουργεί αυτό το χαρακτηριστικό σε εκείνη την εφαρμογή και φτιάξε το ίδιο στο έργο μου»*.
+Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agent inspect a binary when you ask *"Understand how this feature works in that app and build a copy for my project."*
 
-**Επίθεση με πράκτορες AI; Τότε η απάντησή μας είναι άμυνα με πράκτορες AI — μια άμυνα που γίνεται ολοένα και πιο ισχυρή με την πάροδο του χρόνου.** Ο τελικός στόχος του **ANTI-REA** είναι **να μπλοκάρει καθετί που μπορεί να αναλύσει το REA**. Απλώς ζητήστε από τον πράκτορά σας σε φυσική γλώσσα: **«Προστάτευσε τη βασική λογική του προγράμματός μου ώστε να μην μπορεί το REA να την αναλύσει ή να την κλωνοποιήσει»**, και ο πράκτορας θα εντοπίσει τον κρίσιμο κώδικα και τα γύρω στοιχεία, θα εφαρμόσει συσκότιση (obfuscation) και εικονικοποίηση (VM), θα ελέγξει ότι η αρχική λειτουργία παραμένει ανέπαφη και θα μετρήσει σε τι ποσοστό της αρχικής ταχύτητας εκτελείται.
-
-Δεν χρειάζεται να στήσετε μόνοι σας ένα πολύπλοκο εργαστήριο επίθεσης και άμυνας. **Κάθε μέρα φέρνουμε τον υπολογιστή άμυνάς μας αντιμέτωπο με έναν ξεχωριστό υπολογιστή επίθεσης REA, βλέπουμε πώς παραβιάζεται η VM στο TestApp, κλείνουμε τα κενά και ενισχύουμε την άμυνα.** Εσείς απλώς συνδέετε το ANTI-REA στον πράκτορά σας.
+**Agentic attack? Meet agentic defense — defense that grows stronger over time.** The ultimate goal of **ANTI-REA** is to **block everything that REA can analyze**. Ask your agent in plain language — *"Protect the core logic in my program so REA can't analyze or clone it"* — and the agent locates your core functions and surrounding clues, applies obfuscation and virtualization (VM), verifies that behavior isn't broken, and measures what percentage of the original speed it runs at.
 
 ---
 
-## Τρέχουσα Ισχύς Άμυνας & Οδικός Χάρτης (TestApp VM εναντίον πραγματικών επιθέσεων REA)
+## What Gets Protected in Your Software?
 
-![TestApp VM Defense vs. REA 25%](../../docs/assets/defense-roadmap.svg)
-
-Το παραπάνω ποσοστό δεν είναι ένα θεωρητικό χρονοδιάγραμμα, αλλά δείχνει **πόσο αντέχει το προστατευμένο με VM TestApp μας απέναντι σε απευθείας επιθέσεις του REA από άλλο μηχάνημα**.
-
-### Στάδια Ενίσχυσης Άμυνας (Τελικός Στόχος: Φραγή όλων όσων αναλύει το REA)
-
-- **25% (Τώρα) · Αποτροπή στατικής ανακατασκευής 1ου σταδίου:** Η διαφοροποίηση των handlers και η σύνδεση συμφραζομένων των τελεστών εμπόδισαν τη στατική ανάλυση του REA να ανακτήσει τον τύπο.
-- **50% · Φραγή στατικής ανάλυσης & συμπερασμού συμφραζομένων:** Απόκρυψη βοηθητικών συναρτήσεων εντός του dispatcher και ενδείξεων στο γράφημα κλήσεων.
-- **75% · Άμυνα απέναντι σε δυναμική ανίχνευση & αποσφαλμάτωση:** Προστασία της λογικής και των σταθερών από debuggers, Frida, ίχνη εκτέλεσης και memory dumps.
-- **100% · Πλήρης άμυνα σε όλους τους στόχους και τις διαδρομές του REA:** Επέκταση από εγγενή δυαδικά (C/C++, Rust, Go) σε .NET, Java/Kotlin, JavaScript/Electron, Python και macOS (Mach-O/ARM64).
+- **Core Algorithms & Business Logic:** Prevents proprietary calculations, data processing formulas, and core intellectual property from being decompiled, reverse-engineered, or cloned.
+- **Secret Data & Embedded Keys:** Protects sensitive API credentials, encryption keys, tokens, and proprietary constants from being extracted in plaintext from the binary.
+- **License & Authorization Checks:** Shields premium feature gates, expiration timers, and product activation checks against cracker bypasses, binary tampering, or forced branch flipping.
+- **Anti-Tampering & Memory Dump Defense:** Stops attackers from attaching debuggers, injecting hooks (such as Frida), or dumping live process memory to steal unpacked code.
+- **Internal Call Graphs & Execution Flow:** Conceals internal subroutines and API communication paths so competitors and analysts cannot trace the software's structural blueprint.
+- **Automated AI Cloning & REA Defense:** Directly neutralizes autonomous AI reverse-engineering agents like REA that inspect binaries to replicate and reimplement your features into competing projects.
 
 ---
+
+## Supported Programming Languages
+
+ANTI-REA supports core logic virtualization and hardening across a wide spectrum of native, managed, and dynamic languages:
+
+| Language | Environment / Runtime | Protection Mechanism | Deployment Form |
+|:---|:---|:---|:---|
+| **C / C++** | Clang / MSVC / LLVM | Native Polymorphic Register VM | Standalone Binary & Native DLL |
+| **Rust** | `rustc` / LLVM | Native Polymorphic Register VM | C-ABI & Native Core Library |
+| **Go** | Go 1.20+ (Typed Native) | Native VM + Facade Integration | Package Core Separation & Binary Link |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift Native VM + App Integration | Native App Core & Dynamic Library |
+| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | IL Lowering → Native VM | Managed App + Protected Native Core (P/Invoke) |
+| **Java** | OpenJDK 17+ / JVM | JVM Bytecode → Native VM | Java Application + JNI Native Core |
+| **Kotlin** | Kotlin 1.9+ / JVM | JVM Bytecode → Native VM | Kotlin App / JVM Service Core |
+| **Python** | Python 3.10 ~ 3.13 | Flattened Per-Function Stack VM | Pure Module & Mixed Module Bundle |
+| **JavaScript** | Node.js / Browser / Electron | Encoded Virtualized Stack VM | CommonJS Module & App Bundle |
+| **TypeScript** | TypeScript 5.x+ | TS Transpile + Encoded VM | Transpiled Bundle & Core Module |
+
+> [!TIP]
+> For detailed architectural contracts and language integration specifications, see [Multi-Language Development](../../docs/multilanguage-development.md).
+
+---
+
+## ANTI-REA Evolution Roadmap
+
+![ANTI-REA Cosmic Defense Roadmap](../assets/defense-roadmap.svg)
+
+- **Phase 1 · Focus on Static Binary Protection [COMPLETED]:** Protects compiled native binaries against static decompilation, Ghidra analysis, and direct formula recovery via control-flow virtualization and layered binary hardening.
+- **Phase 2 · Deep Static Hardening [ACTIVE]:** Extends static resilience by camouflaging handler boundaries, scrambling symbol relations, and concealing dispatcher internals.
+- **Phase 3 · Scaling Automated Attack Testers [NEXT]:** Continuously scales up autonomous attack agent instances, pitting new defense iterations against live automated testers every day to evolve defenses automatically.
+- **Phase 4 · ? [Classified]**
+- **Phase 5 · ? [Classified]**
+- **Phase 6 · ? [Classified]**
+- **Phase 7 · ? [The Frontier]**
+
+---
+
 
 ## Γρήγορη εκκίνηση
 

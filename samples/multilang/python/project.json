@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "python-integer-source",
+  "language": "python",
+  "sources": ["arithmetic.py"],
+  "functions": ["integer_score"]
+}

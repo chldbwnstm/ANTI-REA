@@ -6,7 +6,8 @@
 
 **지키고 싶은 핵심 기능이 있나요? 바이너리 레벨까지 분석·복제되지 않게 보호하세요.**
 
-[![Defense vs REA](https://img.shields.io/badge/Defense_vs_REA-25%25-4bbd9c?style=flat-square)](#현재-방어력-및-로드맵-testapp-vm-vs-실제-rea-공격)
+[![방어 상태](https://img.shields.io/badge/Defense_Status-Phase_2_Active-38bdf8?style=flat-square)](#anti-rea-진화-로드맵)
+[![지원 언어](https://img.shields.io/badge/Languages-11개_언어_지원-007acc?style=flat-square)](#지원-프로그래밍-언어-supported-languages)
 [![MCP + CLI](https://img.shields.io/badge/MCP-stdio_%2B_CLI-5c4ee5?style=flat-square)](#빠른-시작)
 [![Python requirements](https://img.shields.io/badge/Python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white)](#빠른-시작)
 [![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#지원-엔진)
@@ -16,22 +17,52 @@
 
 **에이전틱 공격? 그럼 우리는 에이전틱 방어 — 시간이 갈수록 점점 강해지는 방어입니다.** **ANTI-REA**의 목표는 **REA가 분석할 수 있는 모든 대상과 분석 방식을 결국 전부 막아내는 것**입니다. 내 에이전트에게 **"내 프로그램의 핵심 기능이 REA에게 분석·복제되지 않도록 보호해줘"**라고 자연어로 말하면, 에이전트가 핵심 코드와 주변 단서를 찾아 난독화·가상화(VM)를 걸고, 원래 기능이 깨지지 않았는지와 실행 속도가 기존의 몇 % 수준으로 돌아가는지까지 측정해 알려줍니다.
 
-사용자가 직접 복잡한 공격·방어 실험 환경을 구축해 방어 기법을 연구할 필요가 없습니다. **저희가 매일 방어 PC와 별도의 REA 공격 PC를 맞붙여 TestApp에 걸어둔 VM이 어디서 어떻게 뚫리는지 확인하고, 약점을 보완하며 시간이 갈수록 점점 강해지는 방어를 만들어가고 있습니다.** 사용자는 그렇게 날마다 단단해지는 ANTI-REA를 내 에이전트에 연결해 쓰기만 하면 됩니다.
+---
+
+## 사용자의 소프트웨어에서 무엇이 보호되나요?
+
+- **핵심 알고리즘 & 비즈니스 로직**: 프로그램 고유의 핵심 계산식, 독자적인 데이터 처리 흐름, 영업 비밀 알고리즘이 디컴파일되어 외부에 그대로 유출되거나 복제되지 않도록 보호합니다.
+- **비밀 데이터 & 암호화 키**: 코드 내부에 포함된 중요 API 키, 라이선스 시그니처, 보안 토큰, 고유 상수 문자열이 평문으로 추출되지 않도록 보호합니다.
+- **라이선스 및 권한 인증 검증 흐름**: 유료 라이선스 검증, 사용 기한 체크, 계정 인증 로직이 크래커에 의해 우회되거나 강제로 참/거짓 분기가 변조되지 않도록 지킵니다.
+- **프로그램 변조 및 메모리 덤프 방지**: 실행 중인 프로그램의 메모리를 가로채거나(덤프), 디버거 및 후킹 도구(Frida 등)를 붙여 동작을 임의로 조작하고 분석하는 행위를 방어합니다.
+- **내부 동작 구조 및 통신 흐름 은닉**: 프로그램이 어떤 내부 함수를 거쳐 동작하고 어떤 시스템 기능을 호출하는지 전체적인 호출 흐름(Call Graph)을 숨겨 분석 단서를 차단합니다.
+- **AI 에이전트에 의한 자동 복제(Cloning) 차단**: REA처럼 코드를 읽고 스스로 기능을 복제해내는 자율형 AI 역공학 도구가 내 소프트웨어를 분석하고 카피캣(복제본)을 만들어내는 시도를 차단합니다.
 
 ---
 
-## 현재 방어력 및 로드맵 (TestApp VM vs. 실제 REA 공격)
+## 지원 프로그래밍 언어 (Supported Languages)
 
-![실제 REA 공격 대비 TestApp VM 방어력 25%](../assets/defense-roadmap.svg)
+ANTI-REA는 네이티브 바이너리부터 가상 머신(JVM, CLR), 스크립트 언어까지 폭넓은 프로그래밍 언어의 핵심 로직을 가상화 및 난독화하여 보호합니다.
 
-위 수치는 단순한 개발 일정이 아니라, **자체 보호를 적용한 TestApp을 별도 PC의 REA가 직접 공격했을 때 얼마나 안 뚫리는지(방어력)**를 나타냅니다.
+| 프로그래밍 언어 | 지원 환경 / 런타임 | 보호 방식 (Engine Route) | 산출 및 배포 형태 |
+|:---|:---|:---|:---|
+| **C / C++** | Clang / MSVC / LLVM | Native 다형성 레지스터 VM | 독립 실행 파일(EXE) & 네이티브 라이브러리(DLL) |
+| **Rust** | `rustc` / LLVM | Native 다형성 레지스터 VM | C-ABI 연동 & 네이티브 코어 라이브러리 |
+| **Go** | Go 1.20+ (Typed Native) | Native VM + 파사드(Facade) 통합 | 패키지 코어 분리 보호 & 네이티브 바이너리 연동 |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift Native VM + 앱 통합 | 네이티브 앱 코어 & 동적 라이브러리 |
+| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | IL Lowering → Native VM 변환 | 관리형 C# 앱 + 네이티브 보호 코어 (P/Invoke) |
+| **Java** | OpenJDK 17+ / JVM | JVM 바이트코드 → Native VM | Java 애플리케이션 + JNI 네이티브 코어 |
+| **Kotlin** | Kotlin 1.9+ / JVM | JVM 바이트코드 → Native VM | Kotlin 앱 / 서버 서비스 코어 연동 |
+| **Python** | Python 3.10 ~ 3.13 | 함수별 평탄화 스택 VM | Pure 모듈 전체 난독화 & Mixed 모듈 번들 |
+| **JavaScript** | Node.js / Electron / 브라우저 | 인코딩 가상화 스택 VM | CommonJS 모듈 & 독립 앱 번들 |
+| **TypeScript** | TypeScript 5.x+ | TS 트랜스파일 + 인코딩 VM | 빌드 번들 & 코어 모듈 보호 |
 
-### 방어력 강화 단계 (최종 목표: REA가 분석하는 모든 것을 차단)
+> [!TIP]
+> 언어별 아키텍처 및 세부 통합 스펙은 [다언어 개발 문서](../../docs/multilanguage-development.md)에서 자세히 확인하실 수 있습니다.
 
-- **25% (현재) · 1차 정적 복원 저지:** 기본 VM이 그대로 뚫리던 상태에서 출발해, 핸들러 다변화와 오퍼랜드 문맥 결합을 통해 외부 REA 정적 분석이 핵심 계산식을 한 번에 복원하지 못하도록 막아낸 단계입니다.
-- **50% · 정적 분석 및 주변 문맥 추론 차단:** 디스패처 내부 보조 함수와 호출 그래프 주변에 남는 단서까지 가려, 정적 디컴파일만으로는 원래 로직을 유추할 수 없게 만듭니다.
-- **75% · 동적 추적 및 디버깅 방어:** 정적 분석이 막혔을 때 공격 에이전트가 동원하는 디버거, Frida, 실행 트레이스, 메모리 덤프에서도 핵심 로직과 상수가 쉽게 노출되지 않도록 방어합니다.
-- **100% · REA가 분석하는 모든 대상과 경로의 완전 방어:** 네이티브 바이너리(C/C++, Rust, Go)뿐 아니라 .NET, Java/Kotlin, JavaScript/Electron, Python 등 REA가 지원하는 모든 분석 대상과 플랫폼(Windows, macOS 등)에서 REA의 분석·재구현을 막아내는 것이 최종 목표입니다.
+---
+
+## ANTI-REA 진화 로드맵
+
+![ANTI-REA 우주선 로드맵](../assets/defense-roadmap.svg)
+
+- **Phase 1 · 정적 파일 보호 집중 [완료]:** 바이너리의 정적 디컴파일, Ghidra 분석, 수식 복원을 가상화(VM) 및 다계층 바이너리 하드닝으로 원천 저지합니다.
+- **Phase 2 · 정적 보호 강화 [현재 활성화]:** 함수별 독립 VM/디스패처 분리, 명령어 융합(Fusion), 바이트코드 무결성 체크섬, 심볼 관계 위장으로 정적 분석을 심층 방어합니다.
+- **Phase 3 · 자동 공격 테스터 지속 확장 [다음 궤도 · 매일 진화하는 방어]:** 별도의 자동 공격 AI 에이전트(Tester) 풀을 지속적으로 늘려 매일 실전 공방 테스트를 거치며 스스로 진화하는 방어 루프를 구축합니다.
+- **Phase 4 · ? [보안 등급 유지]**
+- **Phase 5 · ? [보안 등급 유지]**
+- **Phase 6 · ? [보안 등급 유지]**
+- **Phase 7 · ? [미지의 영역 - The Frontier]**
 
 ---
 

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "name": "go_typed_core",
+  "language": "go",
+  "sources": ["core.go"],
+  "functions": [
+    {"name": "Fold", "export": "go_fold"},
+    {"name": "Wide", "export": "go_wide"},
+    {"name": "Mix", "export": "go_mix"},
+    {"name": "Narrow", "export": "go_narrow"}
+  ]
+}

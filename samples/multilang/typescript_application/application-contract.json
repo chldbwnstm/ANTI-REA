@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "typescript_mixed_module_application_samples",
+  "source": "app.ts",
+  "entrypoints": [
+    {"name": "score", "parameters": [
+      {"name": "seed", "type": "number", "minimum": -1000000, "maximum": 1000000},
+      {"name": "salt", "type": "number", "minimum": -1000000, "maximum": 1000000}
+    ]}
+  ],
+  "preserved_entrypoints": [
+    {"name": "digitSum", "parameters": [
+      {"name": "value", "type": "number", "minimum": -2147483648, "maximum": 2147483647}
+    ]}
+  ]
+}

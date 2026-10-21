@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "library_name": "protected",
+  "calling_convention": "cdecl",
+  "functions": [
+    {
+      "name": "native_transform",
+      "return_type": "u64",
+      "parameters": [{"name": "x", "type": "u32"}, {"name": "y", "type": "u32"}]
+    }
+  ]
+}

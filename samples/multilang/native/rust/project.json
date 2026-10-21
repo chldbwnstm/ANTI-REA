@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "name": "rust-native-core",
+  "language": "rust",
+  "sources": ["core.rs"],
+  "functions": ["native_transform"]
+}

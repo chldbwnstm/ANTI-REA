@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "name": "dotnet-il-core",
+  "language": "csharp",
+  "sources": ["Algorithms.cs"],
+  "methods": [
+    {"type": "Sample.Algorithms", "name": "Mix", "export": "cs_mix"},
+    {"type": "Sample.Algorithms", "name": "Fold", "export": "cs_fold"},
+    {"type": "Sample.Algorithms", "name": "Wide", "export": "cs_wide"}
+  ]
+}

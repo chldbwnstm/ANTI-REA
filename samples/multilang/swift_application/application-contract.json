@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "native_application_samples",
+  "cases": [
+    {"label": "score-normal", "args": ["score", "7", "3"], "expect": {"returncode": 0, "stdout": "11857776971987456574\r\n"}},
+    {"label": "score-zero", "args": ["score", "0", "0"], "expect": {"returncode": 0, "stdout": "8028948862079843762\r\n"}},
+    {"label": "score-u64-max", "args": ["score", "18446744073709551615", "1"], "expect": {"returncode": 0, "stdout": "4362044089377157669\r\n"}},
+    {"label": "signed-normal", "args": ["signed", "7", "3"], "expect": {"returncode": 0, "stdout": "103\r\n"}},
+    {"label": "signed-negative", "args": ["signed", "-5", "-9"], "expect": {"returncode": 0, "stdout": "274\r\n"}},
+    {"label": "signed-i64-min", "args": ["signed", "-9223372036854775808", "1"], "expect": {"returncode": 0, "stdout": "-4503599627370495\r\n"}},
+    {"label": "unsigned32-normal", "args": ["unsigned32", "7", "3"], "expect": {"returncode": 0, "stdout": "2798888770\r\n"}},
+    {"label": "unsigned32-u32-max", "args": ["unsigned32", "4294967295", "1"], "expect": {"returncode": 0, "stdout": "3998870254\r\n"}},
+    {"label": "signed32-normal", "args": ["signed32", "7", "3"], "expect": {"returncode": 0, "stdout": "212\r\n"}},
+    {"label": "signed32-i32-min", "args": ["signed32", "-2147483648", "5"], "expect": {"returncode": 0, "stdout": "-2147483643\r\n"}},
+    {"label": "usage-missing-arg", "args": ["score", "7"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-too-many-args", "args": ["score", "7", "3", "9"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "usage-unknown-op", "args": ["bogus", "7", "3"], "expect": {"returncode": 2, "stdout": ""}},
+    {"label": "non-integer", "args": ["score", "abc", "3"], "expect": {"returncode": 1, "stdout": ""}},
+    {"label": "range-overflow-i32", "args": ["signed32", "2147483648", "1"], "expect": {"returncode": 1, "stdout": ""}}
+  ]
+}

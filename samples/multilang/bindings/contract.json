@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "library_name": "ffi_fixture",
+  "calling_convention": "cdecl",
+  "functions": [
+    {"name":"mix","return_type":"u64","parameters":[{"name":"x","type":"u32"},{"name":"y","type":"u32"}]},
+    {"name":"echoU32","return_type":"u32","parameters":[{"name":"x","type":"u32"}]},
+    {"name":"echoI32","return_type":"i32","parameters":[{"name":"x","type":"i32"}]},
+    {"name":"echoU64","return_type":"u64","parameters":[{"name":"x","type":"u64"}]},
+    {"name":"echoI64","return_type":"i64","parameters":[{"name":"x","type":"i64"}]},
+    {"name":"class","return_type":"u64","parameters":[{"name":"x","type":"u64"}]},
+    {"name":"touch","return_type":"void","parameters":[]}
+  ]
+}

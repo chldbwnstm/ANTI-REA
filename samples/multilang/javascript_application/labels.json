@@ -1,0 +1,5 @@
+{
+  "weigh": "weighted-accumulator",
+  "combine": "sign-aware-combiner",
+  "atleast": "threshold-gate"
+}

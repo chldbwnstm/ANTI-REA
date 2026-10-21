@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "csharp_application_samples",
+  "cases": [
+    {"label": "small", "kind": "value", "args": ["5", "3"],
+     "expect": {"returncode": 0, "stdout_is_integer": true}},
+    {"label": "zero-rounds", "kind": "value", "args": ["0", "0"],
+     "expect": {"returncode": 0, "stdout": "0", "stdout_is_integer": true}},
+    {"label": "negative-seed", "kind": "value", "args": ["-7", "4"],
+     "expect": {"returncode": 0, "stdout_is_integer": true}},
+    {"label": "larger", "kind": "value", "args": ["123456", "8"],
+     "expect": {"returncode": 0, "stdout_is_integer": true}},
+    {"label": "int-min-seed", "kind": "value", "args": ["-2147483648", "3"],
+     "expect": {"returncode": 0, "stdout_is_integer": true}},
+    {"label": "int-max-seed", "kind": "value", "args": ["2147483647", "5"],
+     "expect": {"returncode": 0, "stdout_is_integer": true}},
+    {"label": "missing-arg", "kind": "value", "args": ["5"],
+     "expect": {"returncode": 2, "stdout_is_integer": false}},
+    {"label": "too-many-args", "kind": "value", "args": ["5", "3", "9"],
+     "expect": {"returncode": 2, "stdout_is_integer": false}},
+    {"label": "non-integer-seed", "kind": "exception", "args": ["abc", "3"],
+     "expect": {"exception": "System.FormatException"}},
+    {"label": "overflow-seed", "kind": "exception", "args": ["99999999999", "3"],
+     "expect": {"exception": "System.OverflowException"}}
+  ]
+}

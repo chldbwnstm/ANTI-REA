@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "script_application_integration",
+  "language": "python",
+  "protected_source": "ledger_app/billing.py",
+  "entrypoint": "ledger_app/__main__.py",
+  "application_files": [
+    "ledger_app/__init__.py",
+    "ledger_app/__main__.py",
+    "ledger_app/billing.py",
+    "ledger_app/labels.py",
+    "ledger_app/notes.txt"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "python-mixed-quote",
+  "language": "python",
+  "sources": ["quote_app/pricing.py"],
+  "functions": ["quote_cents"],
+  "protection_mode": "mixed_module"
+}

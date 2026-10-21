@@ -463,6 +463,32 @@ class ProtectorTests(unittest.TestCase):
         self.assertAlmostEqual(bench["speed_percent"], 83.33, places=1)
         self.assertTrue(bench["meets_speed_target"])
 
+    def test_builtin_auto_protect_never_substitutes_an_existing_binary(self):
+        for candidate_kind in ("none", "sibling", "unrelated_ledger"):
+            candidate = None
+            if candidate_kind == "sibling":
+                candidate = self.source.with_name(self.source.stem + ".protected.exe")
+            elif candidate_kind == "unrelated_ledger":
+                candidate = self.root / ".runs/defense-loop/current/ledger.exe"
+            if candidate is not None:
+                candidate.parent.mkdir(parents=True, exist_ok=True)
+                candidate.write_bytes(pe(b"unverified existing binary"))
+            for provider in ("antirea", "antirea_engine", "kagura"):
+                with self.subTest(candidate=candidate_kind, provider=provider), \
+                        patch.object(self.service, "benchmark") as benchmark:
+                    result = self.service.auto_protect(provider, self.source)
+                    self.assertEqual(result["status"], "blocked")
+                    self.assertEqual(result["reason"], "source_project_required")
+                    self.assertFalse(result["protection_applied"])
+                    self.assertFalse(result["executed_target"])
+                    self.assertNotIn("output_path", result)
+                    self.assertIn("protection_source_build", result["next_tools"])
+                    benchmark.assert_not_called()
+            if candidate is not None:
+                candidate.unlink()
+        self.runner.assert_not_called()
+        self.assertFalse(self.service.output_root.exists())
+
     def test_auto_protect_steps_down_defense_level_when_speed_below_target(self):
         def fake_sample(executable, stdin_text, *, timeout):
             name_str = str(executable)

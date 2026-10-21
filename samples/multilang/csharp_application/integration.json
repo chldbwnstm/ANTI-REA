@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "interop_type": "global::NativeCore",
+  "native_library": "antirea_contract",
+  "sources": ["Ops.cs", "Program.cs"],
+  "methods": [
+    {"type": "Sample.Ops", "name": "Transform", "parameters": ["int", "int"], "export": "cs_transform"},
+    {"type": "Sample.Ops", "name": "Accumulate", "parameters": ["long", "long"], "export": "cs_accumulate"},
+    {"type": "Sample.Ops", "name": "FoldHelper", "parameters": ["uint", "uint"], "export": "cs_fold_helper"}
+  ]
+}
