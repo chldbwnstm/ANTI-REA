@@ -7,13 +7,13 @@
 
 `HARDENING_LAYERS`는 요청에 사용하는 기존 이름 목록이다. 목록에 포함되거나 기본값으로 요청된다는 사실은 해당 보호가 구현·적용·검증됐다는 뜻이 아니다. 현재 모든 이름에 해당하는 보호를 완성한 상태가 아니다.
 
-이 문서는 [hardening.py](../antirea/hardening.py)와 [diversify.py](../antirea/diversify.py)의 자체 생성 경로를 다룬다. 별도 스크립트 VM의 실행기 강화는 아래에서 구분한다. 상용 제품의 기능·설정이나 REA 공격 저항성을 보증하지 않는다. Kagura의 별도 FLA/SUB/CO 패스 증거와 아래 추가 하드닝 증거도 구분해야 한다.
+이 문서는 [hardening.py](../antirea/hardening.py)와 [diversify.py](../antirea/diversify.py)의 자체 생성 경로를 다룬다. 별도 스크립트 VM의 실행기 강화는 아래에서 구분한다. 상용 제품의 기능·설정이나 REA 공격 저항성을 보증하지 않는다. ANTI-REA Native의 별도 FLA/SUB/CO 패스 증거와 아래 추가 하드닝 증거도 구분해야 한다.
 
 ## 별도 Python·JavaScript/TypeScript 실행기 강화
 
 새 pure/mixed-module 빌드는 보호 함수마다 별도 dispatcher 함수와 함수 ID 기반 간접 호출 테이블을 생성한다. 함수별 seed 기반 상태 ID, Python의 XOR 상태 마스킹 또는 JavaScript의 modular-add 상태 마스킹, FETCH/EXECUTE/RETURN 상태 전이 평탄화, handler 그룹 순열을 적용한다. 기존 format-2 함수별 opcode/fetch/operand 인코딩과 현재 명령 단위 디코딩도 유지한다. fetch·operand·연산 보조 함수는 여전히 공유한다.
 
-`runtime_hardening.profile = per_function_flattened_dispatch_v1`의 증거 단계는 `generated_source`다. 함수·테이블·상태·handler 연결을 기록하지만 네이티브 Kagura FLA/SUB/CO 적용이나 JIT 최적화 이후 보존을 뜻하지 않는다. `kagura_passes_applied=false`, `external_resistance=not_evaluated`를 명시한다. 상태 마스크·키·디코더는 로컬 산출물에 존재한다.
+`runtime_hardening.profile = per_function_flattened_dispatch_v1`의 증거 단계는 `generated_source`다. 함수·테이블·상태·handler 연결을 기록하지만 네이티브 ANTI-REA Native FLA/SUB/CO 적용이나 JIT 최적화 이후 보존을 뜻하지 않는다. `native_passes_applied=false`, `external_resistance=not_evaluated`를 명시한다. 상태 마스크·키·디코더는 로컬 산출물에 존재한다.
 
 phase-23 기록 (local-only record: `../results/2026-10-20/infrastructure/defense-loop/multilanguage-phase23/README.md`)은 6개 공개 빌드 경로의 90,303개 입력 조합과 원본·보호본 각각 2회 관찰(총 361,212회)을 별도로 검증한다. 기능 일치, 실행 비용, 생성 구조, 외부 공격 저항성은 서로 다른 판정이다. 아래 네이티브 선택 기능 8개의 미구현 항목이 이 변경으로 구현된 것은 아니다.
 
@@ -50,7 +50,7 @@ generate(input_ir, runtime_source, opcode_source, output_dir, seed,
 - `enable_hardening=False`: 선택적 하드닝을 끈다. 동시에 비어 있지 않은 선택 목록을 주면 오류다.
 - 알 수 없는 이름, 문자열 하나를 목록 대신 전달한 경우, 문자열이 아닌 항목은 오류다. 중복 요청은 첫 순서를 유지하며 제거한다.
 
-`parameters`와 `transform_ir`에도 같은 키워드 선택 규칙이 전달된다. CLI는 반복 가능한 `--hardening-layer`와 `--no-hardening`을 제공한다. 생성기는 고정된 Kagura runtime/opcode 소스의 해시를 확인하고, 기존 생성 파일을 덮어쓰지 않는다.
+`parameters`와 `transform_ir`에도 같은 키워드 선택 규칙이 전달된다. CLI는 반복 가능한 `--hardening-layer`와 `--no-hardening`을 제공한다. 생성기는 고정된 ANTI-REA Native runtime/opcode 소스의 해시를 확인하고, 기존 생성 파일을 덮어쓰지 않는다.
 
 ```python
 from antirea.diversify import generate
@@ -78,7 +78,7 @@ multi-VM 경로의 `engine_mode`는 `per_function_indirect`다. 하나의 생성
 | `engines[]` | 함수, blob, dispatcher, 슬롯, 체크섬 함수, 매개변수, 사용 handler, codec 해시의 함수별 연결 |
 | `dispatcher_symbols` | 보호 패스가 처리해야 할 전체 dispatcher 목록 |
 | 최상위 `dispatcher_symbol`, `parameters` | **첫 engine만** 가리키는 호환용 별칭. 전체 VM을 대표하는 값이 아니다. |
-| `blobs[].original_sha256`, `original_bytes` | 다양화 전 Kagura 바이트코드의 해시·크기. 새 인코딩의 해시·크기와 구분한다. |
+| `blobs[].original_sha256`, `original_bytes` | 다양화 전 ANTI-REA Native 바이트코드의 해시·크기. 새 인코딩의 해시·크기와 구분한다. |
 | `independent_vm_parameter_sets` | 생성된 매개변수 집합 수. 이 숫자만으로 최종 보존을 입증하지 않는다. |
 
 `inspect_vm_bindings(core_ir, manifest)`는 함수별 슬롯 초기값, volatile 포인터 로드, 그 값을 이용한 간접 호출, blob 길이·해시와 서로 다른 codec 연결을 검사한다. 네이티브 빌더는 이 결과의 함수 집합이 선택 계획 전체와 일치해야 진행하며, 모든 dispatcher에 FLA/SUB/CO 구조가 남았는지도 각각 검사한다. 공개 경계에서는 모든 dispatcher와 슬롯 참조를 확인한다. 내부 helper도 선택 집합에 포함됐다면 빠짐없이 VM 증거가 필요하다. 지원하지 못하는 선택 함수는 조용히 제외하지 않고 빌드를 실패시킨다.

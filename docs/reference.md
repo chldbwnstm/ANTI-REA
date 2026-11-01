@@ -1,132 +1,30 @@
-# ANTI-REA 명령과 평가 범위
+# ANTI-REA 명령어 및 검증 레퍼런스 (Reference)
 
-실행법은 [How to run](how-to-run.md), 프로젝트 개요는 [README.md](../README.md)를 참고하세요.
+실행 절차는 [실행 가이드](how-to-run.md), 전체 아키텍처와 케르크호프스 화이트박스 설계는 [README.md](../README.md)를 참고하세요.
 
-## 명령
+## 1. 순수 Rust 방어 CLI (`antirea-cli`)
+
+`rust/target/release/antirea-cli.exe`는 다음 명령을 제공합니다:
+
+| 명령 | 주요 인자 | 동작 |
+|:---|:---|:---|
+| `compile-multilang` | `--workspace <dir> --input-ir <ll> --dispatchers <s1,s2,...> --output-dir <dir> --seed <u64>` | LLVM IR(`.ll`)의 대상 함수들을 순수 Rust `antirea-rust-v12` 다형성 VM 런타임(`antirea_multilang_runtime.lib`)으로 컴파일하고 `rust-multilang-report.json`을 생성합니다. |
+| `build` | `--workspace <dir> --input-build <dir> --baseline <exe> --previous <exe> --output-dir <dir> --seed <u64>` | 순수 Rust 다형성 VM 런타임 생성, 네이티브 PE 링크, 4대 자동 검증 게이트(`validation.json`)를 실행합니다. |
+
+## 2. 다언어 브리지 및 MCP 서버 명령
 
 | 명령 | 동작 |
-|---|---|
-| `python -m antirea bootstrap` | 프로젝트 내부에 고정 버전 Kagura 빌드 도구와 REA/Ghidra를 준비합니다. Windows 전용입니다. |
-| `python -m antirea doctor` | 설치 매니페스트와 공격 CLI 위치를 확인합니다. 실제 분석·보호 검증을 대신하지 않습니다. |
-| `python -m antirea scope` | 지정한 LLVM IR와 검토된 정책에서 보호 범위·선정 이유·미해결 사항을 계산합니다. 빌드나 모델 호출은 하지 않습니다. |
-| `python -m antirea run` | 빌드, 실제 보호 적용 확인, 기능 비교, 각 조건의 REA 공격, 비공개 판정, 보고서를 실행합니다. |
+|:---|:---|
+| `python -m antirea.rust_multilang --output-dir <dir> --seed <u64>` | 다언어 빌드 스테이지 디렉터리의 LLVM IR을 `antirea-cli compile-multilang`으로 컴파일하고 `protected.rust.dll`을 링크합니다. |
+| `python -m antirea.defense_mcp --config <json> providers` | 내장 `ANTI-REA Engine`(`antirea-rust-v12`) 및 연동된 상용 프로텍터(VMProtect, Themida, Code Virtualizer) 목록을 출력합니다. |
+| `python -m antirea.defense_mcp --config <json> doctor` | 로컬 프로텍터 경로와 실행 가능 상태를 점검합니다. |
+| `python -m antirea.defense_mcp --config <json> plan ...` | 입력 바이너리 해시와 보호 옵션을 고정한 실행 계획(`plan.json`)을 생성합니다. |
+| `python -m antirea.defense_mcp --config <json> protect ...` | 승인된 계획(`plan.json`)을 검증한 뒤 보호를 실행합니다. |
 
-`run` 옵션:
+## 3. `antirea-rust-v12` 핵심 보호 패스 (`V12-M1` ~ `V12-M5`)
 
-| 옵션 | 기본값 | 범위와 의미 |
-|---|---:|---|
-| `--protection` | `vm` | `vm`: 무보호·VM. `layered`: 무보호·VM·난독화 결합. `scoped`: 별도 샘플의 무보호·핵심만 VM·주변까지 VM. |
-| `--attack-seconds` | 600 | 공격 세션마다 30~3,600초. 모델·도구 초기화 시간도 포함합니다. |
-| `--budget-usd` | 5 | 공격 세션마다 0 초과~50 USD의 CLI 비용 한도. 실제 청구액과 같은 뜻은 아닙니다. |
-| `--cases` | 1024 | 300~100,000개. 기능 비교와 독립 공격 판정은 별도 난수 시드를 사용합니다. |
-| `--resume` | 없음 | 미완료 실행 디렉터리를 이어갑니다. 완료된 공격의 컨텍스트는 새 공격에 공유하지 않습니다. |
-
-재개 시 기존 보호 설정·시간·비용·입력 개수 제한, 도구 버전·lockfile 식별 정보와 샘플 소스가 같아야 합니다. 새 기록에는 실행 코드의 해시도 저장·검사합니다. 조건이 바뀌면 새 실행을 만드세요. 각 공격 결과에도 실제 한도와 공격 도구 인터페이스 버전을 기록합니다.
-
-새 실행은 상수 4개와 Kagura 빌드 시드, 비공개 테스트 시드를 생성합니다. 각 샘플의 `generated_config.h`는 개별 빌드 점검용 기본값이며, 자동 실행에서는 실행별 헤더가 우선합니다.
-
-종료 코드: `0`은 해당 설정의 모든 공격 후보 판정이 완료됨, `2`는 미완료 또는 인자 오류입니다. 예기치 않은 프로세스 자체 오류는 다른 비제로 코드를 반환할 수 있습니다.
-
-## 보호 대상과 계약
-
-`vm`·`layered`의 대상은 `samples/ledger/core.cpp`의 `antirea_score(uint32_t x, uint32_t y)`입니다. `scoped`는 별도 `samples/context_ledger/core.cpp`의 다중 함수 계산을 사용하며 같은 입력·출력 계약을 따릅니다. `antirea_mix`를 핵심으로 지정하지만 공격자는 전처리·핵심·후처리를 포함한 전체 출력 동작을 재구현해야 합니다.
-
-- 입력: 각 값이 0~4,294,967,295인 정수 쌍.
-- 출력: 0~18,446,744,073,709,551,615 범위의 정수.
-- CLI: 표준 입력의 `x y` 한 줄마다 표준 출력에 십진수 결과 한 줄.
-- `vm`: 핵심 함수의 Kagura VM 가상화. CLI와 C++ 런타임 전체를 보호하지 않습니다.
-- `layered`: 핵심 함수에 FLA·SUB·CO 후 VM, VM 실행기에 FLA·SUB·CO. 실행기를 빌드 단계에서 이름 변경하여 Kagura 내부 함수 제외 규칙을 우회하고 링크 별칭으로 연결합니다. upstream 소스 수정·중첩 VM은 없습니다.
-- 비교: 같은 샘플·상수·시드에서 보호 설정만 바꿉니다. 강화 설정의 변환된 VM 실행기만 난독화 보존을 위해 `-O0`로 코드 생성하므로, 측정된 성능 변화는 순수 난독화 효과만 분리한 값이 아닙니다.
-- 적용 증거: 대상 함수의 VM 호출과 비어 있지 않은 바이트코드 전역을 검사합니다. 강화 설정은 핵심 함수의 VM 직전 IR과 실행기 IR에서 각 패스의 구조적 증거도 검사합니다. 기능 보존과 복원 저항성은 별도 검사입니다.
-
-## 공격 도구
-
-일반 셸·파일 읽기·웹·서브에이전트 도구를 제외한 새 Claude CLI 세션에 아래 MCP 도구만 제공합니다. 시작 로그의 도구 목록도 검사합니다.
-
-실제 REA의 `mcp` 서버를 별도 프로세스로 실행하고 Ghidra provider를 호출합니다. 분석 결과를 흉내 낸 구현은 아닙니다. 다만 공격 프롬프트·도구 선택·계산 환경은 ANTI-REA가 구성하므로, 공식 REA 기본 워크플로 전체 또는 제한 없는 공격자와 동일하다고 주장하지 않습니다. 실제 서버 명령·버전·요청·응답은 공격 디렉터리의 `rea/`에 남습니다.
-
-| 도구 | 허용 범위 |
-|---|---|
-| `procedures` | REA 함수 목록, 문자열 필터, 0 이상 offset, 최대 100개 |
-| `decompile`, `disassemble` | 현재 바이너리의 함수명·주소로 REA 결과 조회 |
-| `strings`, `references` | 현재 바이너리의 문자열·주소 참조 |
-| `read_bytes` | 현재 바이너리 가상 주소에서 한 번에 1~4,096바이트 |
-| `query` | 자체 대상 EXE에 한 번에 1~32개, 전체 256개 입력 질의 |
-| `engine_source` | 고정된 Kagura VM 및 FLA·SUB·CO·보호 대상 선택 로직의 공개 소스만 |
-| `compute` | 공격자가 선택한 입력으로 제한된 순수 Python 계산. 파일·네트워크·원본 프로그램 접근 없음. 블랙박스 질의 예산을 쓰지 않음. |
-| `fetch_page` | 이전 도구 응답의 메모리 캐시에서 후속 페이지 조회. 임의 파일 조회 불가. |
-| `public_context` | 실행자가 명시적으로 제공한 공개 CLI 설명만 반환. 파일 경로를 받지 않고 원본 소스·정책·비공개 테스트를 읽지 않음. |
-
-전체 도구 호출 상한은 100회입니다. 긴 응답은 페이지로 나누고 다음 페이지 위치와 남은 분량을 표시합니다. 전체 결과와 실제 전달 범위는 판정 측 로그에 보존합니다. 캐시 용량 초과는 조용한 절단이 아닌 명시적 오류입니다. 도구에는 임의 파일 경로 인자가 없습니다. 정적 분석 중심이며 Frida나 디버거를 연결한 최강 공격자 모델은 아닙니다. 인터페이스 v2의 계산·페이지 도구를 제공한 결과를, 해당 기능이 없었던 첫 파일럿과 동일 조건으로 취급하지 않습니다.
-
-후보는 독립 Python `solve(x, y)`와 설명을 제출합니다. 정수 연산·분기·루프·보조 함수·리터럴 데이터 테이블·컨테이너 인덱싱을 허용합니다. 인터페이스 v3의 허용 내장 함수는 `range`, `abs`, `min`, `max`, `len`, `int`, `bool`, `enumerate`, `zip`, `sum`, `list`, `tuple`, `dict`, `hex`, `ord`, `bytes`이며 `in`/`not in` 비교도 가능합니다. import·속성/메서드 접근·I/O·eval/exec·전역 선언 등은 거부하며 별도 프로세스에서 제한 시간과 256MiB 할당 상한으로 평가합니다. 추출한 바이트코드와 독립 VM 실행기도 유효한 후보입니다. `compute`에도 같은 문법 제한을 적용하지만, 중간 계산을 위해 제한된 JSON 결과를 허용합니다. 일회성 계산도 `solve(x,y)`를 정의하고 `pairs=[[0,0]]`처럼 입력을 전달해야 합니다. 계산된 초기화는 함수 안에 작성합니다. 오류에는 거부된 문법·호출과 줄 위치를 표시합니다. 이는 범용 Python 보안 샌드박스가 아닙니다.
-
-공개 설명의 정규화된 해시도 공격별로 기록하고 비교합니다. 계산 환경과 공개 문맥 제공이 바뀐 v3 결과를 v1/v2 파일럿과 같은 조건으로 취급하지 않습니다. 공개 UI를 에이전트가 관찰한다는 원칙 중 현재 구현된 것은 명시적으로 제공한 CLI 설명의 공유이며, 이미지 제공·GUI 탐색은 아직 없습니다.
-
-## 보호 범위 선정
-
-`scoped`는 `samples/context_ledger`의 `antirea_mix`를 핵심으로 지정하고, 호출자인 `antirea_score`와 그 전처리·후처리 함수를 그래프에서 발견합니다. 순수 전달용 `antirea_present_score`는 검토된 공개 표현 경계로 남깁니다. 보호 강도는 두 보호 조건 모두 Kagura VM 단독으로 고정합니다. `layered`와는 다른 샘플·실험이므로 성능과 공격 시간을 직접 비교하지 않습니다.
-
-정책 파일은 `samples/context_ledger/protection-policy.json`입니다.
-
-| 필드 | 의미 |
-|---|---|
-| `core_roots` | 사용자가 지정한 핵심 함수 이름. 자동 추론의 출발점. |
-| `sensitive_functions` | 별도로 지정한 민감 함수. 확장 모드에서는 공개 표현 표기보다 우선. |
-| `public_presentation` | 함수명 → 검토 이유. 경계를 넘는 확장을 멈추지만 단순 전달 구조 검사도 통과해야 함. |
-| `sensitive_globals` | 민감한 전역 데이터 이름. 함수 가상화만으로 보호됐다고 인정하지 않음. |
-| `public_globals` | 전역명 → 공개 데이터로 검토한 이유. 민감 지정과 충돌하면 민감 취급. |
-| `max_functions` | 함수 수 상한. 넘으면 일부를 조용히 빼지 않고 검토 필요로 반환. |
-| `entry_points` | 선택 사항. 해당 함수 정의의 존재만 확인하며 확장 출발점이나 실제 실행 진입점 검증이 아님. |
-
-알 수 없는 정책 필드는 오타를 조용히 무시하지 않도록 검토 필요로 반환합니다.
-
-```powershell
-python -m antirea scope --ir build/app.ll --policy protection-policy.json --mode expanded --output build/scope.json
-```
-
-여러 `--ir` 입력도 받을 수 있지만 같은 이름의 정의가 충돌하면 먼저 링크·이름 정리가 필요합니다. 분석은 제공된 IR에 한정됩니다. 현재 실제 빌드 어댑터는 C++의 단순한 외부 함수 이름과 Windows x64를 지원하며 임의 앱 전체 빌드·가상 호출·포인터 분석을 처리하지 않습니다.
-
-`expanded`는 호출자·피호출자·공유 전역 데이터 소비자를 따라 확장하고 선정 이유를 기록합니다. 공개 경계가 상수 인자를 주입하거나 전후처리·여러 호출·민감 데이터 참조를 포함하면 검토가 필요합니다. 간접 호출·관련 외부 코드·별칭·콜백과 별도 보호가 필요한 전역 데이터도 조용히 무시하지 않습니다. `ready`는 지원되는 구조 검사를 통과했다는 뜻이며 핵심 기능이 추론 불가능하다는 뜻이 아닙니다. `needs_review`이면 빌드 어댑터는 중단합니다. `core`는 비교용으로 핵심만 선택하고 의도적으로 빠진 주변 함수를 기록합니다.
-
-인라인 어셈블리는 연결 관계 자체를 숨길 수 있어 입력 모듈에 있으면 검토가 필요합니다. 공개 전달 호출의 operand bundle처럼 일반 인자 밖에 추가 데이터를 담는 형태도 단순 전달로 인정하지 않습니다. 참조한 전역 테이블을 공개로 지정했더라도 그 안의 함수 포인터가 가리키는 코드까지 검토된 것으로 취급하지 않습니다.
-
-빌드 결과에는 `scope.json`, 함수별 VM 호출·바이트코드 검증, 공개 경계의 미가상화 증거가 남습니다. 현재 샘플의 민감 상수는 계산 함수 안의 즉시값입니다. 확장 조건은 계산 함수 4개를 선택하지만, 핵심 전용 조건은 주변 함수와 그 상수를 의도적으로 남깁니다. 전역 테이블·문자열 암호화는 구현했다고 주장하지 않습니다. 표준 입출력만 수행하는 `main.cpp`는 검토된 별도 어댑터로 분석 밖에 있음을 기록합니다.
-
-## 산출물
-
-```text
-.runs/<id>/
-  report.md / report.json
-  defender/
-    private.json / generated_config.h
-    baseline/  app.exe, core.before.ll, core.after.ll, coverage.json
-    vm_reference/ (layered 설정에서 추가)
-    core_reference/ (scoped 설정에서 추가)
-    protected/ app.exe, core.before.ll, core.after.ll, coverage.json
-    build-*.stdout.log / build-*.stderr.log
-  targets/<조건 이름>/target.exe
-  attack/<조건 이름>-<attempt>/
-    prompt.txt / attacker.stdout.log / attacker.stderr.log
-    result.json / candidate.py / explanation.txt
-    bridge-audit.jsonl / rea/
-```
-
-`candidate.py`는 제출된 경우에만 존재합니다. `.tools/`와 `.runs/`는 gitignore 대상입니다. `defender/`에는 원본 파생 정보와 테스트 시드가 있으므로 블라인드 평가 중 공격자에게 공개하지 마세요.
-
-`python scripts/verify_run.py .runs/<id> --cases 4096`은 완료된 기록의 바이너리·제출 코드·도구 제한·REA 사용을 검사하고 새 입력으로 재검증합니다. 결과는 `verification.json`에 저장합니다. 모델을 다시 호출하지 않습니다.
-
-`--allow-incomplete`를 추가하면 미완료 기록에서도 바이너리와 이미 채점된 후보만 재검증할 수 있습니다. 누락된 후보는 `not_scored`로 남으며, 이 명령의 성공이 원래 공격 실험을 완료 상태로 바꾸지는 않습니다.
-
-## 판정과 해석
-
-- `candidate_submitted`: 정상 종료, 예상 도구만 노출, 성공한 REA 호출이 있고 후보를 제출함. 정답이라는 뜻은 아닙니다.
-- 판정 `passed`/`failed`: 모든 숨겨진 입력과 일치 / 일부 불일치.
-- 판정 `rejected`/`error`/`timeout`: 유효하게 채점하지 못함. 방어 성공이 아닙니다.
-- 공격 `incomplete_timeout` / `incomplete_cost_budget`: 시간 / 비용 한도 종료. 정답률 0이나 방어 성공으로 표시하지 않습니다.
-- 실행 `completed`: 해당 설정의 모든 후보 행동 검증이 끝남. 보호가 뚫린 경우도 완료입니다.
-- 실행 `incomplete`: 빌드·기능·공격·판정 중 완료되지 않은 항목이 있음.
-
-비교 시간은 도구 시작·분석 시간을 포함합니다. 기능 검사 시간에는 프로세스 시작과 텍스트 입출력이 포함되므로 알고리즘 자체의 성능 배수라고 해석하지 마세요. 단일 프로그램·단일 시도 결과로 일반 공격 성공률, 상용 제품 대비 우열, macOS 효과를 추정하지 않습니다.
-
-상대 방어 효과 해석에는 실제 모델·공격 인터페이스 버전·한도의 일치도 요구합니다. 후보가 틀렸어도 도구 오류나 읽지 못한 응답 페이지가 남아 있다면, 이를 깨끗한 방어 효과 증거로 해석하지 않습니다.
+- **`V12-M1` · 단방향 512비트 암호학적 스폰지 CSPRNG (`KerckhoffsSpongeRng`):** ChaCha20/BLAKE3 계열 비가역 ARX 퍼뮤테이션과 상태 래칫으로 키·순열·상수를 파생하여 바이너리 상수 노출 시에도 `--seed` 역산을 원천 차단합니다.
+- **`V12-M2` · 빌드별 다형성 `VmCtx` 레이아웃 셔플링 및 전단사 뱅크 순열:** 매 빌드마다 `#[repr(C)]` `VmCtx` 필드 순서, 패딩 배열 길이, 64슬롯 헤더(`hdr_ia`/`hdr_ib`) 및 1,024슬롯 아레나(`idx_a`/`idx_b`) 아핀 순열을 무작위 합성합니다.
+- **`V12-M3` · 다형성 명령어 템플릿 및 슈퍼오퍼레이터 합성:** 명령어 암마다 피연산자 평가 순서, 비선형 MBA 항등식(`poly_sel = 0..3`), 디코이 채프 인터리빙을 빌드 시드 기반으로 변형합니다.
+- **`V12-M4` · 단일 호출 인라인 트랜스크립트 결합 및 4-라운드 Feistel 반환 봉인:** 호출자 스택의 4-qword 트랜스크립트(`%vm.st`)와 동적 실행 경로를 결합해 반환값을 4-라운드 비선형 Feistel 네트워크로 봉인·해제합니다.
+- **`V12-M5` · PE 섹션 상수 위생 및 4대 게이트 자동 검증:** `.rdata`/`.data`/`.text` 섹션 내 평문 상수 잔존 여부를 전수 스캔하고 기준 바이너리와 입출력 동치성을 검증합니다.

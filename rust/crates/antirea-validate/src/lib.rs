@@ -1,4 +1,4 @@
-use antirea_ir::{parse_all_llvm_vm_irs, parse_llvm_vm_ir, parse_opcode_table, sha256_hex};
+use antirea_ir::{parse_all_llvm_vm_irs, parse_llvm_vm_ir, sha256_hex};
 use antirea_passes::{
     generate_multilang_rust_runtime, generate_rust_defense, write_generated_crate,
     write_multilang_generated_crate, SplitMix64, FORBIDDEN_CONSTANTS,
@@ -239,10 +239,8 @@ pub fn build_and_validate_candidate(
         source_hashes_before.push((name.to_string(), sha256_hex(&bytes)));
     }
 
-    let opcodes_path = workspace_root.join(".tools/kagura/include/kagura/VMOpcodes.def");
-    let def_text =
-        fs::read_to_string(&opcodes_path).map_err(|e| format!("Failed to read VMOpcodes.def: {e}"))?;
-    let table = parse_opcode_table(&def_text)?;
+    let _ = workspace_root;
+    let table = antirea_ir::default_opcode_table();
 
     let ir_path = input_build_dir.join("core.after.ll");
     let ir_text =
@@ -574,11 +572,9 @@ pub fn compile_multilang_rust_runtime(
     output_dir: &Path,
     seed: u64,
 ) -> Result<String, String> {
+    let _ = workspace_root;
     fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output_dir: {e}"))?;
-    let opcodes_path = workspace_root.join(".tools/kagura/include/kagura/VMOpcodes.def");
-    let def_text =
-        fs::read_to_string(&opcodes_path).map_err(|e| format!("Failed to read VMOpcodes.def: {e}"))?;
-    let table = parse_opcode_table(&def_text)?;
+    let table = antirea_ir::default_opcode_table();
     let ir_text =
         fs::read_to_string(input_ir_path).map_err(|e| format!("Failed to read {}: {e}", input_ir_path.display()))?;
     let blobs = parse_all_llvm_vm_irs(&ir_text, &table)?;

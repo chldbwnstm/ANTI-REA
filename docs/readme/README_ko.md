@@ -37,10 +37,10 @@ ANTI-REA는 순수 Rust 다형성 VM 컴파일러(`antirea-rust-v12` · `antirea
 
 | 프로그래밍 언어 | 지원 환경 / 런타임 | 보호 방식 (`antirea-rust-v12`) | 산출 및 배포 형태 |
 |:---|:---|:---|:---|
-| **C** | Clang / MSVC / LLVM | LLVM IR → Kagura VM 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
-| **C++** | Clang++ / MSVC / LLVM | LLVM IR → Kagura VM 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
-| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → Kagura VM 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | C-ABI 연동 & 독립 보호 네이티브 바이너리 |
-| **Swift** | Swift 5.x+ (LLVM Native) | Swift 프론트엔드 IR → Kagura VM 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 네이티브 앱 코어 & 보호 실행 파일 |
+| **C** | Clang / MSVC / LLVM | LLVM IR → ANTI-REA IR 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
+| **C++** | Clang++ / MSVC / LLVM | LLVM IR → ANTI-REA IR 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
+| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → ANTI-REA IR 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | C-ABI 연동 & 독립 보호 네이티브 바이너리 |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift 프론트엔드 IR → ANTI-REA IR 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 네이티브 앱 코어 & 보호 실행 파일 |
 | **Go** | Go 1.20+ (Typed Native) | Pure-Go 수치 AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 패키지 코어 분리 보호 & 네이티브 바이너리 연동 |
 | **C# (.NET)** | .NET 8 / 9 (CLR / IL) | C# / CIL 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 관리형 C# 앱 + 보호 네이티브 코어 (P/Invoke / EXE) |
 | **Java** | OpenJDK 17+ / JVM | Java 바이트코드 / 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | Java 애플리케이션 + JNI / 보호 네이티브 코어 |
@@ -102,13 +102,13 @@ app.exe에 VMProtect로 보호 적용 계획을 먼저 세워서 보여주고, �
 
 ### 3. 터미널에서 직접 쓰기 (`Use the terminal`)
 
-순수 Rust 방어 엔진(`antirea-cli`)을 빌드하고, 다중 언어/다중 함수(`@kagura_vm_bc`) IR 컴파일 또는 4대 검증 게이트 포함 전체 보호 빌드를 바로 실행할 수 있습니다:
+순수 Rust 방어 엔진(`antirea-cli`)을 빌드하고, 다중 언어/다중 함수(`@antirea_vm_bc`) IR 컴파일 또는 4대 검증 게이트 포함 전체 보호 빌드를 바로 실행할 수 있습니다:
 
 ```powershell
 # 1. 순수 Rust 방어 엔진 워크스페이스 릴리스 빌드
 cargo build --release --manifest-path rust/Cargo.toml
 
-# 2. 11개 언어 또는 다중 함수(@kagura_vm_bc) LLVM IR을 다형성 Rust 정적 라이브러리(staticlib)로 컴파일
+# 2. 11개 언어 또는 다중 함수(@antirea_vm_bc) LLVM IR을 다형성 Rust 정적 라이브러리(staticlib)로 컴파일
 .\rust\target\release\antirea-cli.exe compile-multilang --input-ll <vm_input.ll> --output-dir <out_dir> --seed 90720261101
 
 # 3. 기준 실행 파일(baseline.exe) 대비 엔드투엔드 보호 빌드 + 4대 검증 게이트 실행
@@ -132,17 +132,17 @@ cargo build --release --manifest-path rust/Cargo.toml
 
 | 순번 | 언어 / 타겟 | 프론트엔드 → `antirea-rust-v12` 파이프라인 | VM 블롭 / 클러스터 핸들러 | 기능 보존 (출력 일치) | 단건 응답 지연 | 외부 공격자 복원율 | 실사용 가능 판정 |
 |:-:|:---|:---|:---:|:---:|:---:|:---:|:---:|
-| 1 | **C** | Clang `-O1 -emit-llvm` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.54 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 2 | **C++** | Clang++ `-std=c++17 -emit-llvm` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.29 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 3 | **Rust** | `rustc --emit=llvm-ir` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.73 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 4 | **Swift** | `swiftc -emit-ir` → LLVM 정규화 → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.50 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 5 | **Go** | Go AST 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `5.33 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 6 | **C# (.NET)** | C# 코어 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.53 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 7 | **Java** | Java 코어 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `3.19 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 8 | **Kotlin** | Kotlin 코어 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.77 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 9 | **Python** | Python AST 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `5.57 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 10 | **JavaScript** | JS AST 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.81 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
-| 11 | **TypeScript** | TS 타입 AST 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `6.97 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 1 | **C** | Clang `-O1 -emit-llvm` → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.54 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 2 | **C++** | Clang++ `-std=c++17 -emit-llvm` → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.29 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 3 | **Rust** | `rustc --emit=llvm-ir` → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.73 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 4 | **Swift** | `swiftc -emit-ir` → LLVM 정규화 → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.50 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 5 | **Go** | Go AST 변환 → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `5.33 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 6 | **C# (.NET)** | C# 코어 변환 → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.53 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 7 | **Java** | Java 코어 변환 → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `3.19 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 8 | **Kotlin** | Kotlin 코어 변환 → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.77 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 9 | **Python** | Python AST 변환 → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `5.57 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 10 | **JavaScript** | JS AST 변환 → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.81 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 11 | **TypeScript** | TS 타입 AST 변환 → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `6.97 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
 | ★ | **상업용 엔터프라이즈 스위트** | 4대 서브시스템 (`LICENSE` · `ENTITLE` · `CLEAR` · `AUDIT`) → `antirea-rust-v12` | **8 / 128** | `100%` (`18,991`건) | `15.72 ms` | **`0 / 5` (전원 차단)** | `USABLE (5/5)` |
 
 ---
@@ -202,4 +202,4 @@ cargo test --manifest-path rust/Cargo.toml
 python -m unittest discover -s tests -v
 ```
 
-실제 상용 프로텍터 연동 재현, 새로운 Rust VM 난독화 패스, 일반 프로젝트 빌드 연결, macOS 지원 관련 기여를 환영합니다. 이 프로젝트는 [MIT License](../../LICENSE)로 배포됩니다. (연동하는 각 보호 엔진은 해당 도구의 고유 라이선스를 따르며, 초기 LLVM 패스 픽스처 일부는 MIT 라이선스의 오픈소스 Kagura에서 파생되었습니다.)
+실제 상용 프로텍터 연동 재현, 새로운 Rust VM 난독화 패스, 일반 프로젝트 빌드 연결, macOS 지원 관련 기여를 환영합니다. 이 프로젝트는 [MIT License](../../LICENSE)로 배포됩니다. (연동하는 각 외부 보호 엔진은 해당 도구의 고유 라이선스를 따릅니다.)

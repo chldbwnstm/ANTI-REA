@@ -37,10 +37,10 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 
 | Language | Environment / Runtime | Protection Mechanism (`antirea-rust-v12`) | Deployment Form |
 |:---|:---|:---|:---|
-| **C** | Clang / MSVC / LLVM | LLVM IR → Kagura VM Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Standalone Native Binary (`.exe`) & Native DLL |
-| **C++** | Clang++ / MSVC / LLVM | LLVM IR → Kagura VM Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Standalone Native Binary (`.exe`) & Native DLL |
-| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → Kagura VM Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | C-ABI & Standalone Protected Native Binary |
-| **Swift** | Swift 5.x+ (LLVM Native) | Swift Frontend IR → Kagura VM Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Native App Core & Protected Executable |
+| **C** | Clang / MSVC / LLVM | LLVM IR → ANTI-REA IR Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Standalone Native Binary (`.exe`) & Native DLL |
+| **C++** | Clang++ / MSVC / LLVM | LLVM IR → ANTI-REA IR Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Standalone Native Binary (`.exe`) & Native DLL |
+| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → ANTI-REA IR Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | C-ABI & Standalone Protected Native Binary |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift Frontend IR → ANTI-REA IR Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Native App Core & Protected Executable |
 | **Go** | Go 1.20+ (Typed Native) | Pure-Go Numeric AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Package Core Separation & Native Binary Link |
 | **C# (.NET)** | .NET 8 / 9 (CLR / IL) | C# / CIL Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Managed App + Protected Native Core (P/Invoke / EXE) |
 | **Java** | OpenJDK 17+ / JVM | Java Bytecode / Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Java Application + JNI / Protected Native Core |
@@ -102,13 +102,13 @@ Your agent automatically calls ANTI-REA MCP tools to check available engines (`p
 
 ### 3. Use the terminal
 
-Build the Pure-Rust defense engine (`antirea-cli`) and protect single-target or multi-language / multi-module (`@kagura_vm_bc`) LLVM IR inputs:
+Build the Pure-Rust defense engine (`antirea-cli`) and protect single-target or multi-language / multi-module (`@antirea_vm_bc`) LLVM IR inputs:
 
 ```powershell
 # 1. Build the Pure-Rust defense engine workspace
 cargo build --release --manifest-path rust/Cargo.toml
 
-# 2. Protect any multi-language or multi-function (@kagura_vm_bc) LLVM IR into a hardened Rust staticlib
+# 2. Protect any multi-language or multi-function (@antirea_vm_bc) LLVM IR into a hardened Rust staticlib
 .\rust\target\release\antirea-cli.exe compile-multilang --input-ll <vm_input.ll> --output-dir <out_dir> --seed 90720261101
 
 # 3. Full end-to-end build + 4-gate verification against a reference baseline executable
@@ -132,17 +132,17 @@ Every language pipeline and multi-module commercial subsystem protected by `anti
 
 | # | Language / Target | Frontend → `antirea-rust-v12` Pipeline | VM Blobs / Cluster Handlers | Functional Equivalence | Single-Call Latency | External REA Recovery | Usability Status |
 |:-:|:---|:---|:---:|:---:|:---:|:---:|:---:|
-| 1 | **C** | Clang `-O1 -emit-llvm` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.54 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 2 | **C++** | Clang++ `-std=c++17 -emit-llvm` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.29 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 3 | **Rust** | `rustc --emit=llvm-ir` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.73 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 4 | **Swift** | `swiftc -emit-ir` → LLVM Normalize → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.50 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 5 | **Go** | Go AST Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `5.33 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 6 | **C# (.NET)** | C# Core Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.53 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 7 | **Java** | Java Core Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `3.19 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 8 | **Kotlin** | Kotlin Core Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.77 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 9 | **Python** | Python AST Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `5.57 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 10 | **JavaScript** | JS AST Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.81 ms` | **`0 / 1` (Blocked)** | `USABLE` |
-| 11 | **TypeScript** | TS Typed AST Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `6.97 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 1 | **C** | Clang `-O1 -emit-llvm` → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.54 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 2 | **C++** | Clang++ `-std=c++17 -emit-llvm` → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.29 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 3 | **Rust** | `rustc --emit=llvm-ir` → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.73 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 4 | **Swift** | `swiftc -emit-ir` → LLVM Normalize → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.50 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 5 | **Go** | Go AST Lowering → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `5.33 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 6 | **C# (.NET)** | C# Core Lowering → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.53 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 7 | **Java** | Java Core Lowering → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `3.19 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 8 | **Kotlin** | Kotlin Core Lowering → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.77 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 9 | **Python** | Python AST Lowering → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `5.57 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 10 | **JavaScript** | JS AST Lowering → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `4.81 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 11 | **TypeScript** | TS Typed AST Lowering → Clang LLVM IR → ANTI-REA IR → `antirea-rust-v12` | 1 / 16 | `100%` | `6.97 ms` | **`0 / 1` (Blocked)** | `USABLE` |
 | ★ | **Commercial Enterprise Suite** | 4 Subsystems (`LICENSE` · `ENTITLE` · `CLEAR` · `AUDIT`) → `antirea-rust-v12` | **8 / 128** | `100%` (`18,991` tx) | `15.72 ms` | **`0 / 5` (Blocked)** | `USABLE (5/5)` |
 
 ---

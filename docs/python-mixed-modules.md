@@ -99,7 +99,7 @@ the shared source-plan interface accepts integers 1..2,147,483,647.
 
 The default config is `.runs/protectors.local.json`; an alternate config goes
 before the command: `python -m antirea.defense_mcp --config PATH source-plan ...`.
-The config's workspace root defines the owned boundary. No Kagura/native
+The config's workspace root defines the owned boundary. No ANTI-REA Native/native
 compiler or third-party application dependency is installed or needed by this
 Python transformation. A build attempt consumes its plan; retry with a fresh
 plan instead of rewriting old evidence. STOP remains authoritative.
@@ -193,7 +193,7 @@ measured attack resistance.
 
 Import-time checksum data is not authenticated and does not cover runtime code.
 Keys, state masks, tables and decoded instructions remain locally available.
-No native Kagura passes, anti-debug/dump, whole-application constants protection,
+No native ANTI-REA Native passes, anti-debug/dump, whole-application constants protection,
 performance guarantee or external REA resistance is implied. See the
 phase-23 record (local-only record: `../results/2026-10-20/infrastructure/defense-loop/multilanguage-phase23/README.md`)
 for fresh functional qualification and separately reported costs.

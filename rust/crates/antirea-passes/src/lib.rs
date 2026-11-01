@@ -441,19 +441,20 @@ fn rewrite_core_ir(
     caller_k3: u64,
     caller_post_mul: u64,
 ) -> Result<String, String> {
-    let bc_prefix = format!("@kagura_vm_bc_{suffix} =");
-    let key_prefix = format!("@kagura_vm_key_{suffix} =");
-    let funcs_prefix = format!("@kagura_vm_funcs_{suffix} =");
+    let bc_marker = format!("_vm_bc_{suffix} =");
+    let key_marker = format!("_vm_key_{suffix} =");
+    let funcs_marker = format!("_vm_funcs_{suffix} =");
     let mut kept_lines = Vec::new();
     for line in ir_text.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with(&bc_prefix)
-            || trimmed.starts_with(&key_prefix)
-            || trimmed.starts_with(&funcs_prefix)
+        if trimmed.starts_with('@')
+            && (trimmed.contains(&bc_marker)
+                || trimmed.contains(&key_marker)
+                || trimmed.contains(&funcs_marker))
         {
             continue;
         }
-        if trimmed.starts_with("declare i64 @kagura_vm_execute(") {
+        if trimmed.starts_with("declare i64 @") && trimmed.contains("_vm_execute(") {
             kept_lines.push(format!("declare i64 @{dispatch_symbol}(i32, i32, ptr)"));
             continue;
         }
@@ -2677,7 +2678,7 @@ panic = "abort"
 #[cfg(test)]
 mod tests {
     use super::*;
-    use antirea_ir::{parse_llvm_vm_ir, parse_opcode_table};
+    use antirea_ir::parse_llvm_vm_ir;
     use std::collections::BTreeSet;
     use std::fs;
     use std::path::PathBuf;
@@ -2710,16 +2711,20 @@ mod tests {
     #[test]
     fn test_generate_rust_defense_v12_counter_m1_to_m5() {
         let root = repo_root();
-        let def_text =
-            fs::read_to_string(root.join(".tools/kagura/include/kagura/VMOpcodes.def")).unwrap();
-        let table = parse_opcode_table(&def_text).unwrap();
+        let table = antirea_ir::default_opcode_table();
         let ir_text = fs::read_to_string(
-            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.after.ll"),
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.prevm.ll"),
         )
         .unwrap();
-        let parsed = parse_llvm_vm_ir(&ir_text, &table).unwrap();
+        let lowered = antirea_ir::lower_llvm_module_functions(
+            &ir_text,
+            &["antirea_score".to_string()],
+            0x414E_5449_5245_4156,
+        )
+        .unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
 
-        let art = generate_rust_defense(&ir_text, &parsed, 131220261031).unwrap();
+        let art = generate_rust_defense(&lowered, &parsed, 131220261031).unwrap();
         assert_eq!(art.cluster_symbols.len(), 16);
         let unique_clusters: BTreeSet<_> = art.cluster_symbols.iter().collect();
         assert_eq!(unique_clusters.len(), 16);

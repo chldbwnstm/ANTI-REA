@@ -132,7 +132,7 @@ available. See the
 phase-23 record (local-only record: `../results/2026-10-20/infrastructure/defense-loop/multilanguage-phase23/README.md`)
 for fresh qualification and separately reported costs.
 
-This is a separate JavaScript VM, **not Kagura/native hardening**. A successful
+This is a separate JavaScript VM, **not ANTI-REA Native/native hardening**. A successful
 build is not proof of functional equivalence, acceptable performance or defense
 against REA. External attack evaluation remains `not_evaluated`.
 

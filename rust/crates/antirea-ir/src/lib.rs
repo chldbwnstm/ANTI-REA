@@ -1,4 +1,69 @@
+pub mod llvm_lower;
+pub use llvm_lower::{lower_llvm_module_functions, lower_single_llvm_function_body};
+
 use std::collections::{BTreeMap, BTreeSet};
+
+pub const ANTIREA_VM_OPCODES_DEF: &str = r#"
+ANTIREA_VM_OP(OP_PUSH_IMM8,   0x00)
+ANTIREA_VM_OP(OP_PUSH_IMM16,  0x01)
+ANTIREA_VM_OP(OP_PUSH_IMM32,  0x02)
+ANTIREA_VM_OP(OP_PUSH_IMM64,  0x03)
+ANTIREA_VM_OP(OP_PUSH_REG,    0x04)
+ANTIREA_VM_OP(OP_POP_REG,     0x05)
+ANTIREA_VM_OP(OP_DUP,         0x06)
+ANTIREA_VM_OP(OP_SWAP,        0x07)
+ANTIREA_VM_OP(OP_PUSH_POOL,   0x08)
+ANTIREA_VM_OP(OP_PUSH_FRAME,  0x09)
+ANTIREA_VM_OP(OP_SELECT,      0x0A)
+ANTIREA_VM_OP(OP_DROP,        0x0B)
+ANTIREA_VM_OP(OP_ADD,         0x10)
+ANTIREA_VM_OP(OP_SUB,         0x11)
+ANTIREA_VM_OP(OP_MUL,         0x12)
+ANTIREA_VM_OP(OP_UDIV,        0x13)
+ANTIREA_VM_OP(OP_SDIV,        0x14)
+ANTIREA_VM_OP(OP_UREM,        0x15)
+ANTIREA_VM_OP(OP_SREM,        0x16)
+ANTIREA_VM_OP(OP_AND,         0x20)
+ANTIREA_VM_OP(OP_OR,          0x21)
+ANTIREA_VM_OP(OP_XOR,         0x22)
+ANTIREA_VM_OP(OP_NOT,         0x23)
+ANTIREA_VM_OP(OP_SHL,         0x24)
+ANTIREA_VM_OP(OP_LSHR,        0x25)
+ANTIREA_VM_OP(OP_ASHR,        0x26)
+ANTIREA_VM_OP(OP_ICMP_EQ,     0x30)
+ANTIREA_VM_OP(OP_ICMP_NE,     0x31)
+ANTIREA_VM_OP(OP_ICMP_ULT,    0x32)
+ANTIREA_VM_OP(OP_ICMP_ULE,    0x33)
+ANTIREA_VM_OP(OP_ICMP_UGT,    0x34)
+ANTIREA_VM_OP(OP_ICMP_UGE,    0x35)
+ANTIREA_VM_OP(OP_ICMP_SLT,    0x36)
+ANTIREA_VM_OP(OP_ICMP_SLE,    0x37)
+ANTIREA_VM_OP(OP_ICMP_SGT,    0x38)
+ANTIREA_VM_OP(OP_ICMP_SGE,    0x39)
+ANTIREA_VM_OP(OP_JMP,         0x40)
+ANTIREA_VM_OP(OP_JZ,          0x41)
+ANTIREA_VM_OP(OP_JNZ,         0x42)
+ANTIREA_VM_OP(OP_CALL,        0x43)
+ANTIREA_VM_OP(OP_RET,         0x44)
+ANTIREA_VM_OP(OP_RET_VOID,    0x45)
+ANTIREA_VM_OP(OP_LOAD8,       0x50)
+ANTIREA_VM_OP(OP_LOAD16,      0x51)
+ANTIREA_VM_OP(OP_LOAD32,      0x52)
+ANTIREA_VM_OP(OP_LOAD64,      0x53)
+ANTIREA_VM_OP(OP_STORE8,      0x54)
+ANTIREA_VM_OP(OP_STORE16,     0x55)
+ANTIREA_VM_OP(OP_STORE32,     0x56)
+ANTIREA_VM_OP(OP_STORE64,     0x57)
+ANTIREA_VM_OP(OP_ZEXT,        0x60)
+ANTIREA_VM_OP(OP_SEXT,        0x61)
+ANTIREA_VM_OP(OP_TRUNC,       0x62)
+ANTIREA_VM_OP(OP_LOAD_ARG,    0x70)
+ANTIREA_VM_OP(OP_NOP,         0xFF)
+"#;
+
+pub fn default_opcode_table() -> BTreeMap<u8, String> {
+    parse_opcode_table(ANTIREA_VM_OPCODES_DEF).expect("Built-in ANTIREA_VM_OPCODES_DEF must be valid")
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instruction {
@@ -185,7 +250,15 @@ pub fn parse_opcode_table(def_text: &str) -> Result<BTreeMap<u8, String>, String
     let mut names = BTreeSet::new();
     for line in def_text.lines() {
         let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("KAGURA_VM_OP(") {
+        let rest_opt = trimmed
+            .strip_prefix("ANTIREA_VM_OP(")
+            .or_else(|| trimmed.strip_prefix("VM_OP("))
+            .or_else(|| {
+                trimmed
+                    .find("_VM_OP(")
+                    .map(|idx| &trimmed[idx + "_VM_OP(".len()..])
+            });
+        if let Some(rest) = rest_opt {
             if let Some(end_idx) = rest.find(')') {
                 let inside = &rest[..end_idx];
                 let parts: Vec<&str> = inside.split(',').map(|s| s.trim()).collect();
@@ -397,26 +470,39 @@ pub fn parse_all_llvm_vm_irs(
     ir_text: &str,
     table: &BTreeMap<u8, String>,
 ) -> Result<Vec<ParsedVmIr>, String> {
+    let lowered_cow;
+    let effective_ir = if !ir_text.contains("_vm_bc_") && ir_text.contains("define ") {
+        lowered_cow = lower_llvm_module_functions(ir_text, &[], 0x414E_5449_5245_4156)?;
+        lowered_cow.as_str()
+    } else {
+        ir_text
+    };
+
     let mut raw_blobs = Vec::new();
-    for line in ir_text.lines() {
+    for line in effective_ir.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("@kagura_vm_bc_") {
-            if let Some(eq_idx) = rest.find(" = private constant [") {
-                let suf = &rest[..eq_idx];
-                let after_eq = &rest[eq_idx + " = private constant [".len()..];
-                if let Some(x_idx) = after_eq.find(" x i8] c\"") {
-                    let size_str = &after_eq[..x_idx];
-                    let size_val = size_str
-                        .parse::<usize>()
-                        .map_err(|e| format!("Invalid blob size: {e}"))?;
-                    let after_c = &after_eq[x_idx + " x i8] c\"".len()..];
-                    if let Some(end_q) = after_c.rfind('"') {
-                        raw_blobs.push((
-                            format!("kagura_vm_bc_{suf}"),
-                            suf.to_string(),
-                            size_val,
-                            after_c[..end_q].to_string(),
-                        ));
+        if trimmed.starts_with('@') {
+            if let Some(bc_idx) = trimmed.find("_vm_bc_") {
+                let prefix_sym = &trimmed[1..bc_idx];
+                let rest = &trimmed[bc_idx + "_vm_bc_".len()..];
+                if let Some(eq_idx) = rest.find(" = private constant [") {
+                    let suf = &rest[..eq_idx];
+                    let after_eq = &rest[eq_idx + " = private constant [".len()..];
+                    if let Some(x_idx) = after_eq.find(" x i8] c\"") {
+                        let size_str = &after_eq[..x_idx];
+                        let size_val = size_str
+                            .parse::<usize>()
+                            .map_err(|e| format!("Invalid blob size: {e}"))?;
+                        let after_c = &after_eq[x_idx + " x i8] c\"".len()..];
+                        if let Some(end_q) = after_c.rfind('"') {
+                            raw_blobs.push((
+                                prefix_sym.to_string(),
+                                format!("{prefix_sym}_vm_bc_{suf}"),
+                                suf.to_string(),
+                                size_val,
+                                after_c[..end_q].to_string(),
+                            ));
+                        }
                     }
                 }
             }
@@ -424,11 +510,11 @@ pub fn parse_all_llvm_vm_irs(
     }
 
     if raw_blobs.is_empty() {
-        return Err("No @kagura_vm_bc_* global found".to_string());
+        return Err("No @antirea_vm_bc_* global found".to_string());
     }
 
     let mut out = Vec::with_capacity(raw_blobs.len());
-    for (global_name, suffix, declared_size, escaped_blob) in raw_blobs {
+    for (prefix_sym, global_name, suffix, declared_size, escaped_blob) in raw_blobs {
         let raw_bytecode = parse_llvm_escaped_bytes(&escaped_blob)?;
         if raw_bytecode.len() != declared_size {
             return Err(format!(
@@ -438,9 +524,9 @@ pub fn parse_all_llvm_vm_irs(
             ));
         }
 
-        let key_prefix = format!("@kagura_vm_key_{suffix} = private constant i64 ");
+        let key_prefix = format!("@{prefix_sym}_vm_key_{suffix} = private constant i64 ");
         let mut key_val = None;
-        for line in ir_text.lines() {
+        for line in effective_ir.lines() {
             let trimmed = line.trim();
             if let Some(rest) = trimmed.strip_prefix(&key_prefix) {
                 let parsed_i64 = rest
@@ -473,7 +559,7 @@ pub fn parse_llvm_vm_ir(
     parse_all_llvm_vm_irs(ir_text, table)?
         .into_iter()
         .next()
-        .ok_or_else(|| "No @kagura_vm_bc_* global found".to_string())
+        .ok_or_else(|| "No @antirea_vm_bc_* global found".to_string())
 }
 
 #[inline]
@@ -787,20 +873,16 @@ mod tests {
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
-        let root = repo_root();
-        let def_bytes = fs::read(root.join(".tools/kagura/include/kagura/VMOpcodes.def")).unwrap();
-        assert_eq!(
-            sha256_hex(&def_bytes),
-            "64b6555b693ae6797561f83b31e6595615bc16eaa71de44b1031d3c65c573aec"
-        );
+        let table = default_opcode_table();
+        assert_eq!(table.len(), 55);
+        assert_eq!(table.get(&0x00).map(|s| s.as_str()), Some("OP_PUSH_IMM8"));
+        assert_eq!(table.get(&0x44).map(|s| s.as_str()), Some("OP_RET"));
     }
 
     #[test]
     fn test_parse_and_eval_protected_ir() {
         let root = repo_root();
-        let def_text =
-            fs::read_to_string(root.join(".tools/kagura/include/kagura/VMOpcodes.def")).unwrap();
-        let table = parse_opcode_table(&def_text).unwrap();
+        let table = default_opcode_table();
         assert_eq!(table.get(&0x00).map(|s| s.as_str()), Some("OP_PUSH_IMM8"));
         assert_eq!(table.get(&0x44).map(|s| s.as_str()), Some("OP_RET"));
 
@@ -814,6 +896,30 @@ mod tests {
         assert_eq!(parsed.instructions.len(), 596);
         assert!(parsed.fused.len() < parsed.instructions.len());
 
+        let prevm_ir = fs::read_to_string(
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.prevm.ll"),
+        )
+        .unwrap();
+        let lowered_prevm = lower_llvm_module_functions(
+            &prevm_ir,
+            &["antirea_score".to_string()],
+            0x414E_5449_5245_4156,
+        )
+        .unwrap();
+        assert!(lowered_prevm.contains("@antirea_vm_bc_"));
+        assert!(lowered_prevm.contains("@antirea_vm_execute("));
+        let parsed_prevm = parse_llvm_vm_ir(&lowered_prevm, &table).unwrap();
+        assert_eq!(parsed_prevm.raw_bytecode.len(), 1509);
+        assert_eq!(parsed_prevm.instructions.len(), 596);
+        assert_eq!(parsed_prevm.instructions, parsed.instructions);
+        assert_eq!(parsed_prevm.fused, parsed.fused);
+
+        let before_ir = fs::read_to_string(
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.before.ll"),
+        )
+        .unwrap();
+        let parsed_before = parse_llvm_vm_ir(&before_ir, &table).unwrap();
+
         for &(x, y, expected) in &[
             (0u32, 0u32, 9036915729725471529u64),
             (1u32, 2u32, 388144475430603460u64),
@@ -823,8 +929,12 @@ mod tests {
         ] {
             let v_stock = eval_instructions(&parsed.instructions, x, y).unwrap();
             let v_fused = eval_instructions(&parsed.fused, x, y).unwrap();
+            let v_prevm = eval_instructions(&parsed_prevm.fused, x, y).unwrap();
+            let v_before = eval_instructions(&parsed_before.fused, x, y).unwrap();
             assert_eq!(v_stock, expected, "stock mismatch for ({x}, {y})");
             assert_eq!(v_fused, expected, "fused mismatch for ({x}, {y})");
+            assert_eq!(v_prevm, expected, "prevm mismatch for ({x}, {y})");
+            assert_eq!(v_before, expected, "before mismatch for ({x}, {y})");
         }
     }
 }

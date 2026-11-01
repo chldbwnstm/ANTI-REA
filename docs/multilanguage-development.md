@@ -27,8 +27,8 @@ implemented. The overall objective remains incomplete.
 | Java/Kotlin direct source | Separate actual Java/Kotlin builds; each has three exports and one private helper covered by the native VM; original JVM versus both DLLs matched on 8,516 inputs per export | Restricted static `int`/`long` bytecode; dispatcher counts depend on the recorded build profile; not whole-class/JAR protection or automatic call-site replacement |
 | Go direct source | Actual standard `go/parser`/`go/types` frontend, four exports plus one owned helper; original Go versus both DLLs matched on 8,516 inputs per export; fresh MCP plan/build/validate passed | Fixed-width integer subset, not imports/objects/concurrency/general Go projects or automatic call-site replacement |
 | Swift direct source | Actual Swift compiler and LLVM-C parser; four signed/unsigned 32/64-bit exports plus five compiler/helper closure members protected; each export matched original Swift on 8,516 inputs twice for both DLLs | Closed integer graph with wrapping arithmetic, not checked overflow, objects/runtime calls, whole apps or macOS |
-| Python pure-module direct source | Actual AST-to-stack-VM protection; three fixtures each matched original Python values/types or exception classes on 8,217 inputs twice | Restricted pure integer/bool module; separate Python VM, not Kagura or whole-package support |
-| JavaScript/TypeScript direct source | AST/helper-closure lowering to an encoded JS VM; three Number exports each matched 8,217 inputs twice; two BigInt exports each matched 8,201 twice; Boolean export matched all four pairs twice | Restricted Number/BigInt/boolean module, not whole apps or native Kagura; TS annotations are erased, not fully type-checked |
+| Python pure-module direct source | Actual AST-to-stack-VM protection; three fixtures each matched original Python values/types or exception classes on 8,217 inputs twice | Restricted pure integer/bool module; separate Python VM, not ANTI-REA Native or whole-package support |
+| JavaScript/TypeScript direct source | AST/helper-closure lowering to an encoded JS VM; three Number exports each matched 8,217 inputs twice; two BigInt exports each matched 8,201 twice; Boolean export matched all four pairs twice | Restricted Number/BigInt/boolean module, not whole apps or native ANTI-REA Native; TS annotations are erased, not fully type-checked |
 | Generated native-core bindings | Separate outputs for `c`, `cpp`, `rust`, `swift`, `go`, `csharp`, `java`, `kotlin`, `python`, `javascript`, `typescript` | Generation alone does not compile, execute or protect host-language source |
 | Plain-ABI execution | All 11 language IDs compiled/loaded the public ABI fixture, including signed/unsigned boundaries; Go and Swift now have real Windows checks | Windows fixture coverage, not all platforms or application runtimes |
 | Protected native-core integration | Python, Node, Java, Kotlin, TypeScript and C# each compared eight calls into a protected C DLL; Go/Swift also call protected native libraries through their generated bindings | Binding smoke coverage, separate from direct source protection and original-runtime comparisons |
@@ -308,7 +308,7 @@ still require ordinary-project integration beyond scalar subset experiments.
 ## Source-project workflow
 
 Use the repository's configured Python environment, an existing pinned
-`.tools/kagura-toolchain.json`, LLVM/Kagura binaries and an installed Visual
+`.tools/toolchain.json`, LLVM/ANTI-REA Native binaries and an installed Visual
 Studio/Windows SDK environment. Rust additionally needs an installed `rustc`
 whose LLVM major/minor matches the pinned reader. Discovery of a compiler path
 does not establish compatibility. These tools do not install missing compilers,
@@ -409,7 +409,7 @@ Python/CommonJS CLI apps: no dependency installation, package hooks, arbitrary
 project graphs, full TS type checking, runtime ESM/browser support or macOS
 qualification. Missing-module checks prove dependency presence, not that every
 VM function executes. Existing per-function script VM hardening is preserved;
-no native Kagura layers or new resistance/performance claims are added.
+no native ANTI-REA Native layers or new resistance/performance claims are added.
 
 `source-validate` compares baseline/protected behavior on generated scalar cases;
 it does not know an arbitrary application's independent expected result. The
@@ -420,7 +420,7 @@ an attempted plan is not automatically rerun.
 
 The built-in `auto-protect --provider antirea` route for a compiled EXE is
 unsupported (`blocked`, `source_project_required`), as are its `antirea_engine`
-and `kagura` aliases. Use the source workflow above. Commercial binary
+and `antirea` aliases. Use the source workflow above. Commercial binary
 protection remains a separate provider workflow, not a fallback that silently
 protects an executable with the built-in source engine.
 
@@ -525,7 +525,7 @@ unchanged, but the original owned source/include paths must still exist.
 
 The link contract remains a Windows x64 shared library with reviewed scalar
 C-ABI exports, not the original application's full EXE/link/packaging contract.
-Recorded exception/RTTI options do not imply Kagura supports every emitted
+Recorded exception/RTTI options do not imply ANTI-REA Native supports every emitted
 operation. Arbitrary C++ objects, mangled internal helper handling and app-wide
 integration remain unfinished. See the private
 phase-5 record (local-only record: `../results/2026-10-19/infrastructure/defense-loop/multilanguage-phase5/README.md`)
@@ -655,7 +655,7 @@ repeats. These do not prove whole-language semantics or resistance to analysis.
 A later semantic audit found that emitting a Go loop as C11 `while(condition)`
 could add a forward-progress assumption and eliminate a nonterminating loop.
 Lowering now uses `for (;;)`, an explicit condition break, and explicit
-continue/post labels. Actual Clang/Kagura IR preserves the backedge; owned Go,
+continue/post labels. Actual Clang/ANTI-REA Native IR preserves the backedge; owned Go,
 baseline and protected executions match 42 terminating observations and each
 remains nonreturning for the bounded one-second odd-input observation. That
 timeout is not a general functional pass or a proof of infinite execution.
@@ -726,7 +726,7 @@ Supported scalar Number/BigInt/boolean functions include lexical locals, control
 flow, arithmetic, accepted builtins and owned helper calls. Imports, objects,
 arrays, classes, closures, recursion, async/generators and arbitrary libraries are
 rejected. TS primitive annotations are syntax-checked/erased, not a full semantic
-type check. This is a separate JS VM, not native Kagura. Encoded data checksums
+type check. This is a separate JS VM, not native ANTI-REA Native. Encoded data checksums
 do not authenticate the runtime; keys and decoded instructions are locally
 available during execution.
 
@@ -742,7 +742,7 @@ New pure and mixed-module builds add a separate flattened dispatch function per
 protected function, a function-ID dispatch table, seeded state IDs with
 modular-add masking, and permuted opcode-handler groups. Fetch, operand and
 operator helpers remain shared. This is generated JavaScript structure, not
-native Kagura FLA/SUB/CO or proof of retention after JIT optimization. The
+native ANTI-REA Native FLA/SUB/CO or proof of retention after JIT optimization. The
 `runtime_hardening` profile is `per_function_flattened_dispatch_v1`; its
 `external_resistance` remains `not_evaluated`.
 
@@ -770,7 +770,7 @@ The whole source module must fit the documented
 [opt-in mixed-module route](python-mixed-modules.md) described below retains
 ordinary unselected application code; it does not make the pure route general.
 No target code executes during inspection/build, and this route needs neither
-Kagura nor a native compiler. It emits a custom stack program with per-build
+ANTI-REA Native nor a native compiler. It emits a custom stack program with per-build
 opcode numbers and encoded operands, plus a standalone Python VM runtime.
 Original selected function bodies are not packaged for `exec`, `eval` or `marshal`.
 
@@ -805,7 +805,7 @@ The [Python validation contract](../samples/multilang/python/contract.json) uses
 returned arbitrary-precision integers are compared exactly, bool is distinct from
 int, and raised exception classes are compared (not messages, traces or side
 effects). A function producing only exceptions cannot pass. Root/export/helper
-closure evidence is checked before either module executes. Native Kagura passes
+closure evidence is checked before either module executes. Native ANTI-REA Native passes
 and native hardening layers are explicitly not applied to this Python backend.
 
 The current script runtime-hardening checkpoint is recorded in
@@ -827,7 +827,7 @@ code, classes and other unselected functions retain their source/order; selected
 functions keep their original callable names through VM wrappers.
 
 This route returns backend `python_mixed_module_vm`. It shares format-2 Python
-VM encoding with the pure route, not native Kagura passes. Selected global
+VM encoding with the pure route, not native ANTI-REA Native passes. Selected global
 values, objects, dynamic calls, defaults/decorators and other unsupported forms
 are rejected rather than silently captured or copied as an unprotected fallback.
 The [reference](python-mixed-modules.md) states the schema and exact boundaries.
@@ -887,7 +887,7 @@ and source-build API/MCP tools. Selected scalar roots and their reachable owned
 helpers enter the format-2 JavaScript VM; surrounding application code remains
 ordinary code. JavaScript preserves unselected text; TypeScript is transpiled as
 a whole CommonJS module, including runtime constructs such as enums/namespaces.
-This is not merely type erasure, full type checking or native Kagura protection.
+This is not merely type erasure, full type checking or native ANTI-REA Native protection.
 
 JavaScript now has an explicit `javascript_mixed_module_application_samples`
 validation contract through the public service/MCP/CLI route. Phase19 adds the
@@ -1101,7 +1101,7 @@ The narrow anti-debug source component exists, but the current IR inspector did
 not prove its retention in these artifacts. See the
 [capability audit](hardening-capabilities.md) for exact states and evidence stages.
 
-Kagura FLA/SUB/CO, selected-function VM wrappers/blobs, diversification and runtime
+ANTI-REA Native FLA/SUB/CO, selected-function VM wrappers/blobs, diversification and runtime
 transformations have their own structural coverage fields. Do not infer their
 presence from optional hardening names or infer resistance from their presence.
 
