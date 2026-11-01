@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "antirea-cli"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "antirea-ir",
  "antirea-passes",
@@ -13,18 +13,18 @@ dependencies = [
 
 [[package]]
 name = "antirea-ir"
-version = "0.4.0"
+version = "1.0.0"
 
 [[package]]
 name = "antirea-passes"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "antirea-ir",
 ]
 
 [[package]]
 name = "antirea-validate"
-version = "0.4.0"
+version = "1.0.0"
 dependencies = [
  "antirea-ir",
  "antirea-passes",

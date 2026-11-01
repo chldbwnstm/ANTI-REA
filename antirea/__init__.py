@@ -1,4 +1,3 @@
-"""Local protection and evidence-based reverse-engineering experiments."""
+"""Pure-Rust and multi-language binary protection engine against AI-assisted reverse engineering."""
 
-__version__ = "0.1.0"
-
+__version__ = "1.0.0"

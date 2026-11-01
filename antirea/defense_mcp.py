@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import sys
 
+from . import __version__
 from .languages import LANGUAGE_IDS
 
 
@@ -249,7 +250,7 @@ class DefenseBridge:
             requested = params["protocolVersion"]
             result = {"protocolVersion": requested if requested in SUPPORTED_PROTOCOLS else SUPPORTED_PROTOCOLS[-1],
                       "capabilities": {"tools": {"listChanged": False}},
-                      "serverInfo": {"name": "anti-rea-defense", "version": "0.1.0"},
+                      "serverInfo": {"name": "anti-rea-defense", "version": __version__},
                       "instructions": "Defender-only local adapters. Review plans before execution. Artifact creation does not establish functional preservation or attack resistance. Source builds execute compilers; benchmark tools execute owned binaries. Binding generation does not protect host-language source. No attack or publishing tools are exposed."}
         elif method == "ping":
             result = {}

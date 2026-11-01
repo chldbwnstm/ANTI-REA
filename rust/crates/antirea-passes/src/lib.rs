@@ -2620,7 +2620,7 @@ pub fn write_multilang_generated_crate(out_dir: &Path, runtime_lib_rs: &str) -> 
     fs::create_dir_all(&src_dir).map_err(|e| format!("Failed to create multilang crate dir: {e}"))?;
     let cargo_toml = r#"[package]
 name = "antirea-multilang-runtime"
-version = "0.12.0"
+version = "1.0.0"
 edition = "2021"
 
 [lib]
@@ -2650,7 +2650,7 @@ pub fn write_generated_crate(
 
     let cargo_toml = r#"[package]
 name = "antirea-generated-runtime"
-version = "0.12.0"
+version = "1.0.0"
 edition = "2021"
 
 [lib]

@@ -6,6 +6,7 @@
 
 **지키고 싶은 핵심 기능이 있나요? 바이너리 레벨까지 분석·복제되지 않게 보호하세요.**
 
+[![Version](https://img.shields.io/badge/Version-v1.0.0-10b981?style=flat-square)](../../CHANGELOG.md)
 [![방어 상태](https://img.shields.io/badge/Defense_Status-Phase_4_Active-38bdf8?style=flat-square)](#anti-rea-진화-로드맵)
 [![Rust Engine](https://img.shields.io/badge/Rust_Engine-1.75%2B_MSVC-dea584?style=flat-square&logo=rust&logoColor=white)](#지원-엔진)
 [![지원 언어](https://img.shields.io/badge/Languages-11개_언어_지원-007acc?style=flat-square)](#지원-프로그래밍-언어-supported-languages)
@@ -122,7 +123,7 @@ cargo build --release --manifest-path rust/Cargo.toml
 
 ## 11개 지원 언어 및 상업용 엔터프라이즈 프로그램 방어 검증 요약 (`antirea-rust-v12`)
 
-`antirea-rust-v12`로 보호된 11개 지원 언어 바이너리와 4대 핵심 모듈(8개 가상화 함수 / 128개 클러스터 핸들러)을 탑재한 상업용 엔터프라이즈 제품군은 **5대 외부 공격자 PC 병렬 클러스터**(REA MCP + Ghidra 헤드리스 디컴파일 + 동적 프로빙)에서 전수 검증되었습니다:
+`antirea-rust-v12`로 보호된 11개 지원 언어 바이너리와 4대 핵심 모듈(8개 가상화 함수 / 128개 클러스터 핸들러)을 탑재한 상업용 엔터프라이즈 제품군은 **Multi-PC 외부 공격자 병렬 클러스터**(REA MCP + Ghidra 헤드리스 디컴파일 + 동적 프로빙)에서 전수 검증되었습니다:
 
 | 순번 | 언어 / 타겟 | 프론트엔드 → `antirea-rust-v12` 파이프라인 | VM 블롭 / 클러스터 핸들러 | 기능 보존 (출력 일치) | 단건 응답 지연 | 외부 공격자 복원율 | 실사용 가능 판정 |
 |:-:|:---|:---|:---:|:---:|:---:|:---:|:---:|
@@ -151,12 +152,12 @@ cargo build --release --manifest-path rust/Cargo.toml
 - **계획 확인 후 안전한 실행:** 에이전트가 임의로 바이너리를 덮어쓰지 못하도록, 입력 파일 해시와 실행 명령어를 먼저 계획(Plan)으로 고정하고 승인된 작업만 실행합니다.
 - **기능 보존 및 실행 속도·사용성(Usability) 측정:** VM을 걸면 실행 속도에 오버헤드가 생길 수밖에 없습니다. 보호 후에도 원본과 똑같은 출력을 내는지(`100%` 일치) 검사하고, 로컬 및 실제 공격자 PC에서의 단건 응답 지연과 배치 처리량(`usability-telemetry.json`)을 측정해 프로그램이 실사용 가능한지(`USABLE`) 검증합니다.
 
-### 저희가 매일 돌리는 5병렬 실전 공방 루프
-저희는 "보호를 걸었으니 안전할 것이다"라고 짐작하지 않고, **방어 전담 환경과 5대 외부 공격자 PC 플릿(REA + Ghidra + 동적 에뮬레이션)을 분리해 매일 실전 공방 루프**를 돌리고 있습니다.
+### 저희가 매일 돌리는 Multi-PC 병렬 실전 공방 루프
+저희는 "보호를 걸었으니 안전할 것이다"라고 짐작하지 않고, **방어 전담 환경과 Multi-PC 외부 공격자 플릿(REA + Ghidra + 동적 에뮬레이션)을 분리해 매일 실전 공방 루프**를 돌리고 있습니다.
 
 1. **순수 Rust 방어 빌드 및 4대 게이트 검증 (방어 환경):** 자체 구축한 순수 Rust 패스 엔진(`rust/crates/antirea-passes`)으로 새로운 VM·난독화 기법을 입히고, 수천 개의 입출력 일치·PE 상수 은닉·실행 속도/사용성 기준을 통과하는지 검증합니다.
-2. **5대 공격자 PC 병렬 블라인드 공격 및 사용성 텔레메트리 수집 (외부 공격 환경):** 소스 코드나 비공개 테스트는 빼고 **보호된 EXE와 기본 입출력 계약**만 5대의 공격자 PC에 전달합니다. 각 공격자 PC는 실제 하드웨어에서 프로그램 실행 속도와 사용성(`usability-telemetry.json`)을 측정하고, REA MCP + Ghidra + Unicorn으로 역공학을 시도하며 노출된 단서(Anchors)와 추론 과정(Inference Steps)을 `reversing-chain.json`에 기록합니다.
-3. **`reversing-chain.json` 역이용 및 다음 세대 Rust 엔진 진화:** 공격자 5대가 기록한 정적·동적 앵커(점프 테이블, 내부 호출 그래프, 고정 XOR 슬롯 쌍, 종료 토큰, 스택 초기화 프레임 등)를 분석해 다음 세대 Rust 엔진(`antirea-rust-v4` → `v12`)에서 해당 단서를 원천 제거합니다.
+2. **Multi-PC 병렬 블라인드 공격 및 사용성 텔레메트리 수집 (외부 공격 환경):** 소스 코드나 비공개 테스트는 빼고 **보호된 EXE와 기본 입출력 계약**만 격리된 외부 공격자 PC들에 전달합니다. 각 공격자 PC는 실제 하드웨어에서 프로그램 실행 속도와 사용성(`usability-telemetry.json`)을 측정하고, REA MCP + Ghidra + Unicorn으로 역공학을 시도하며 노출된 단서(Anchors)와 추론 과정(Inference Steps)을 `reversing-chain.json`에 기록합니다.
+3. **`reversing-chain.json` 역이용 및 다음 세대 Rust 엔진 진화:** 각 공격자 PC가 기록한 정적·동적 앵커(점프 테이블, 내부 호출 그래프, 고정 XOR 슬롯 쌍, 종료 토큰, 스택 초기화 프레임 등)를 분석해 다음 세대 Rust 엔진(`antirea-rust-v4` → `v12`)에서 해당 단서를 원천 제거합니다.
 
 ### 케르크호프스의 원칙 (Kerckhoffs's Principle): 오픈소스가 공개되어도 AI 역컴파일러에 뚫리지 않는 이유
 ANTI-REA는 오픈소스이므로 공격자(또는 공격자 AI)가 우리의 변환 엔진 소스 코드(`rust/crates/antirea-passes/src/lib.rs`) 전체를 그대로 읽을 수 있습니다. 따라서 현대 암호학의 대원칙인 **케르크호프스의 원칙(알고리즘과 오픈소스 코드가 완전히 공개되어도, 빌드 시드 없이는 원본 로직이나 키를 역산할 수 없어야 함)**을 기반으로 설계되었습니다 (`antirea-rust-v12`):

@@ -6,6 +6,7 @@
 
 **Have a core feature you need to protect? Keep it from being analyzed or cloned, down to the binary level.**
 
+[![Version](https://img.shields.io/badge/Version-v1.0.0-10b981?style=flat-square)](../../CHANGELOG.md)
 [![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_4_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
 [![Rust Engine](https://img.shields.io/badge/Rust_Engine-1.75%2B_MSVC-dea584?style=flat-square&logo=rust&logoColor=white)](#supported-engines)
 [![Languages](https://img.shields.io/badge/Languages-11_Supported-007acc?style=flat-square)](#supported-programming-languages)
@@ -122,7 +123,7 @@ You can also inspect supported providers and run the MCP server directly from th
 
 ## Multi-Language & Commercial Enterprise Verification (`antirea-rust-v12`)
 
-Every language pipeline and multi-module commercial subsystem protected by `antirea-rust-v12` is validated across our **5-PC parallel external attacker fleet** (REA MCP + Ghidra headless decompilation + dynamic probing) with strict zero-leakage and usability gates:
+Every language pipeline and multi-module commercial subsystem protected by `antirea-rust-v12` is validated across our **Multi-PC parallel external attacker fleet** (REA MCP + Ghidra headless decompilation + dynamic probing) with strict zero-leakage and usability gates:
 
 | # | Language / Target | Frontend → `antirea-rust-v12` Pipeline | VM Blobs / Cluster Handlers | Functional Equivalence | Single-Call Latency | External REA Recovery | Usability Status |
 |:-:|:---|:---|:---:|:---:|:---:|:---:|:---:|
@@ -151,10 +152,10 @@ Every language pipeline and multi-module commercial subsystem protected by `anti
 - **Behavior & Usability Speed Measurement:** VM protection inevitably adds overhead. ANTI-REA verifies that outputs match the original binary (`100%` equivalence across thousands of test pairs) and measures both local and attacker-side interactive/batch execution speed (`usability-telemetry.json`) to verify that protected binaries remain responsive (`USABLE`).
 
 ### Our Daily Live Attack-Defense Loop
-We run a continuous loop between our **Defense Environment** and a **5-PC Parallel External Attack Fleet (REA + Ghidra + Dynamic Emulation)**:
+We run a continuous loop between our **Defense Environment** and a **Multi-PC Parallel External Attack Fleet (REA + Ghidra + Dynamic Emulation)**:
 
 1. **Build & Verify (Pure-Rust Defense Engine):** Apply new Pure-Rust VM/obfuscation passes (`rust/crates/antirea-passes`) and verify 100% output equivalence, PE constant hygiene, and interactive/batch usability bounds (`antirea-validate`).
-2. **5-PC Parallel Blind Attack & Usability Telemetry (External Attack Environment):** Share only the **protected EXE and public I/O specification** (never source code or private tests) across 5 isolated attacker PCs. Each attacker PC records live execution speed/usability (`usability-telemetry.json`) and attempts reconstruction using REA MCP + Ghidra + Unicorn, logging exposed anchors and inference steps in `reversing-chain.json`.
+2. **Multi-PC Parallel Blind Attack & Usability Telemetry (External Attack Environment):** Share only the **protected EXE and public I/O specification** (never source code or private tests) across isolated attacker PCs. Each attacker PC records live execution speed/usability (`usability-telemetry.json`) and attempts reconstruction using REA MCP + Ghidra + Unicorn, logging exposed anchors and inference steps in `reversing-chain.json`.
 3. **Counter-Exploitation & Next-Generation Evolution:** Inspect the incoming `reversing-chain.json` anchors, inference steps, and bottlenecks to eliminate every exposed clue (jump tables, helper call graphs, static XOR slot pairs, terminal tokens, and stack init frames) in the next generation of the Pure-Rust engine.
 
 ### Kerckhoffs's Principle: Why Open-Source Defense Remains Resilient Against AI Deobfuscators

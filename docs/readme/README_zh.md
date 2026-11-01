@@ -6,6 +6,7 @@
 
 **有想要保护的核心功能吗？从二进制层面防止它被分析或克隆。**
 
+[![Version](https://img.shields.io/badge/Version-v1.0.0-10b981?style=flat-square)](../../CHANGELOG.md)
 [![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_4_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
 [![Rust Engine](https://img.shields.io/badge/Rust_Engine-1.75%2B_MSVC-dea584?style=flat-square&logo=rust&logoColor=white)](#supported-engines)
 [![Languages](https://img.shields.io/badge/Languages-11_Supported-007acc?style=flat-square)](#supported-programming-languages)
@@ -117,7 +118,7 @@ cargo build --release --manifest-path rust/Cargo.toml
 
 ### Multi-Language & Commercial Enterprise Verification (`antirea-rust-v12`)
 
-Every language pipeline and multi-module commercial subsystem protected by `antirea-rust-v12` is validated across our **5-PC parallel external attacker fleet** (REA MCP + Ghidra headless decompilation + dynamic probing):
+Every language pipeline and multi-module commercial subsystem protected by `antirea-rust-v12` is validated across our **Multi-PC parallel external attacker fleet** (REA MCP + Ghidra headless decompilation + dynamic probing):
 
 | # | Language / Target | Frontend → `antirea-rust-v12` Pipeline | VM Blobs / Cluster Handlers | Functional Equivalence | Single-Call Latency | External REA Recovery | Usability Status |
 |:-:|:---|:---|:---:|:---:|:---:|:---:|:---:|
