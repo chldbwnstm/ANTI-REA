@@ -76,7 +76,7 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 ടെർമിനൽ കമാൻഡുകളോ കോൺഫിഗറേഷൻ ഫയലുകളോ സ്വയം മാറ്റേണ്ടതില്ല; നിങ്ങളുടെ ഏജന്റിനോട് (Claude Code, Cursor, Codex, Gemini CLI മുതലായവ) ഇങ്ങനെ ആവശ്യപ്പെടുക:
 
 ```text
-ANTI-REA ലോക്കൽ Python വെർച്വൽ എൻവയോൺമെന്റിൽ (.venv) ഇൻസ്റ്റാൾ ചെയ്യുകയും ഉടൻ ഉപയോഗിക്കാൻ കഴിയുന്ന വിധം antirea.defense_mcp സെർവർ MCP-യുമായി ബന്ധിപ്പിക്കുകയും ചെയ്യുക.
+ANTI-REA ലോക്കൽ Python വെർച്വൽ എൻവയോൺമെന്റിൽ (.venv) ഇൻസ്റ്റാൾ ചെയ്യുകയും ഉടൻ ഉപയോഗിക്കാൻ കഴിയുന്ന വിധം antirea.defense_mcp സെർവർ MCP-യുമായി ബന്ധിപ്പിക്കുകയും ചെയ്യുക. (Also automatically check/install any missing Rust, LLVM/Clang, MSVC, and Python 3.11+ prerequisites and run `cargo build --release --manifest-path rust/Cargo.toml`.)
 ```
 
 ### 2. ഏജന്റിനോട് സ്വാഭാവിക ഭാഷയിൽ ആവശ്യപ്പെടുക (`Ask your agent`)

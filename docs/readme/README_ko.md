@@ -70,18 +70,12 @@ ANTI-REA는 순수 Rust 다형성 VM 컴파일러(`antirea-rust-v12` · `antirea
 
 ## 빠른 시작
 
-### 필수 설치 요구사항 (`Prerequisites`)
-
-- **Rust 툴체인:** `rustc` / `cargo` 1.75+ (`x86_64-pc-windows-msvc` 타겟 — 순수 Rust 방어 워크스페이스 `rust/` 및 생성 런타임 `staticlib` 빌드용)
-- **LLVM / Clang & Windows SDK:** `clang` / `llvm-objdump` 및 MSVC 링커(`link.exe`)
-- **Python 3.11+:** `antirea.defense_mcp` MCP 서버, 다언어 프론트엔드(`antirea.rust_multilang`) 및 CLI 오케스트레이션용
-
 ### 1. 설치 및 에이전트 연결 (`Set up your agent`)
 
-직접 터미널 명령어나 설정 파일을 만질 필요 없이, 사용 중인 에이전트(Claude Code, Cursor, Codex, Gemini CLI 등)에게 아래처럼 시키면 에이전트가 알아서 설치하고 Rust 엔진 빌드 및 MCP 서버 연결까지 수행합니다.
+필수 개발 도구(Rust, LLVM/Clang, MSVC 빌드 도구, Python 3.11+)를 직접 찾아서 설치하거나 터미널 명령어·설정 파일을 만질 필요가 없습니다. 사용 중인 에이전트(Claude Code, Cursor, Codex, Gemini CLI 등)에게 아래처럼 시키면 에이전트가 필수 도구 확인·설치부터 순수 Rust 방어 엔진 빌드 및 MCP 서버 연결까지 알아서 수행합니다.
 
 ```text
-ANTI-REA를 로컬 Python 가상환경(.venv)에 설치하고, 순수 Rust 방어 엔진(cargo build --release --manifest-path rust/Cargo.toml)을 빌드한 뒤, 네가 바로 쓸 수 있게 antirea.defense_mcp 서버를 MCP에 연결해줘.
+필수 도구(Rust 툴체인, LLVM/Clang, MSVC 빌드 도구, Python 3.11+)가 없으면 알아서 설치해주고, ANTI-REA를 로컬 Python 가상환경(.venv)에 설치한 뒤 순수 Rust 방어 엔진(cargo build --release --manifest-path rust/Cargo.toml)을 빌드해서 네가 바로 쓸 수 있게 antirea.defense_mcp 서버를 MCP에 연결해줘.
 ```
 
 ### 2. 에이전트에게 자연어로 시키기 (`Ask your agent`)

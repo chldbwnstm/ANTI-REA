@@ -76,7 +76,7 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 無需手動輸入終端機指令或修改設定檔，直接用自然語言對你的代理（Claude Code、Cursor、Codex、Gemini CLI 等）說：
 
 ```text
-將 ANTI-REA 安裝到本地 Python 虛擬環境 (.venv) 中，並把 antirea.defense_mcp 伺服器連接到 MCP，以便你直接使用。
+檢查並自動安裝缺失的必備工具（Rust 工具鏈、LLVM/Clang、MSVC 建置工具、Python 3.11+），將 ANTI-REA 安裝到本地 Python 虛擬環境 (.venv) 中，建置純 Rust 防禦引擎 (cargo build --release --manifest-path rust/Cargo.toml)，並把 antirea.defense_mcp 伺服器連接到 MCP，以便你直接使用。
 ```
 
 ### 2. 用自然語言指揮代理 (`Ask your agent`)

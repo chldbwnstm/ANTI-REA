@@ -76,7 +76,7 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 Tidak perlu mengetik perintah terminal atau mengedit file JSON secara manual; cukup perintahkan agen Anda (Claude Code, Cursor, Codex, Gemini CLI, dll.):
 
 ```text
-Instal ANTI-REA di lingkungan virtual Python lokal (.venv) dan hubungkan server antirea.defense_mcp ke konfigurasi MCP agar bisa langsung digunakan.
+Instal ANTI-REA di lingkungan virtual Python lokal (.venv) dan hubungkan server antirea.defense_mcp ke konfigurasi MCP agar bisa langsung digunakan. (Also automatically check/install any missing Rust, LLVM/Clang, MSVC, and Python 3.11+ prerequisites and run `cargo build --release --manifest-path rust/Cargo.toml`.)
 ```
 
 ### 2. Perintahkan Agen dengan Bahasa Alami (`Ask your agent`)

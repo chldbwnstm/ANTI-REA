@@ -70,18 +70,12 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 
 ## Quick start
 
-### Prerequisites
-
-- **Rust Toolchain:** `rustc` / `cargo` 1.75+ targeting `x86_64-pc-windows-msvc` (for building the Pure-Rust defense workspace `rust/` and compiling generated `staticlib` runtimes).
-- **LLVM / Clang & Windows SDK:** `clang` / `llvm-objdump` and the MSVC linker (`link.exe`).
-- **Python 3.11+:** For the `antirea.defense_mcp` MCP server, multi-language frontends (`antirea.rust_multilang`), and CLI orchestration.
-
 ### 1. Set up your agent
 
-No need to touch terminal commands or config files manually. Just ask your agent (Claude Code, Cursor, Codex, Gemini CLI, etc.):
+No need to manually install prerequisites, run terminal commands, or edit config files. Just ask your agent (Claude Code, Cursor, Codex, Gemini CLI, etc.) and it will check and install any missing prerequisites (Rust 1.75+ `x86_64-pc-windows-msvc`, LLVM/Clang, MSVC Build Tools, Python 3.11+), build the Pure-Rust defense engine, and connect the MCP server automatically:
 
 ```text
-Install ANTI-REA in a local Python virtual environment (.venv), build the release Rust defense engine (cargo build --release --manifest-path rust/Cargo.toml), and connect the antirea.defense_mcp server to your MCP configuration so you can use it right away.
+Check and install any missing prerequisites (Rust toolchain, LLVM/Clang, MSVC linker, and Python 3.11+), install ANTI-REA in a local Python virtual environment (.venv), build the release Rust defense engine (cargo build --release --manifest-path rust/Cargo.toml), and connect the antirea.defense_mcp server to your MCP configuration so you can use it right away.
 ```
 
 ### 2. Ask your agent

@@ -76,7 +76,7 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 ターミナルコマンドや設定ファイルを直接触る必要はありません。お使いのエージェント（Claude Code, Cursor, Codex, Gemini CLIなど）に次のように指示するだけで、インストールからMCPサーバー接続まで自動で行います。
 
 ```text
-ANTI-REAをローカルのPython仮想環境(.venv)にインストールして、すぐに使えるように antirea.defense_mcp サーバーをMCPに接続して。
+必要な前提ツール（Rustツールチェーン、LLVM/Clang、MSVCビルドツール、Python 3.11+）がなければ自動でインストールし、ANTI-REAをローカルのPython仮想環境(.venv)にインストールした上で、純Rust防御エンジン(cargo build --release --manifest-path rust/Cargo.toml)をビルドして、すぐに使えるように antirea.defense_mcp サーバーをMCPに接続して。
 ```
 
 ### 2. エージェントに自然言語で指示する (`Ask your agent`)

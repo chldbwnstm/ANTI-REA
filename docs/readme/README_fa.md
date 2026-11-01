@@ -76,7 +76,7 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 نیازی به اجرای دستی دستورات ترمینال یا ویرایش فایل‌های تنظیمات نیست؛ کافی است به ایجنت خود (Claude Code، Cursor، Codex، Gemini CLI و غیره) بگویید:
 
 ```text
-بسته ANTI-REA را در یک محیط مجازی محلی پایتون (.venv) نصب کن و سرور antirea.defense_mcp را به تنظیمات MCP خود متصل کن تا بلافاصله بتوانی از آن استفاده کنی.
+بسته ANTI-REA را در یک محیط مجازی محلی پایتون (.venv) نصب کن و سرور antirea.defense_mcp را به تنظیمات MCP خود متصل کن تا بلافاصله بتوانی از آن استفاده کنی. (Also automatically check/install any missing Rust, LLVM/Clang, MSVC, and Python 3.11+ prerequisites and run `cargo build --release --manifest-path rust/Cargo.toml`.)
 ```
 
 ### 2. دستور به ایجنت با زبان طبیعی (`Ask your agent`)

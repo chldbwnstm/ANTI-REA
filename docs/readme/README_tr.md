@@ -76,7 +76,7 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 Terminal komutları veya yapılandırma dosyalarıyla uğraşmanıza gerek yok. Ajanınıza (Claude Code, Cursor, Codex, Gemini CLI vb.) doğrudan şunu söyleyin:
 
 ```text
-ANTI-REA'yı yerel bir Python sanal ortamına (.venv) kur ve hemen kullanabilmen için antirea.defense_mcp sunucusunu MCP'ye bağla.
+ANTI-REA'yı yerel bir Python sanal ortamına (.venv) kur ve hemen kullanabilmen için antirea.defense_mcp sunucusunu MCP'ye bağla. (Also automatically check/install any missing Rust, LLVM/Clang, MSVC, and Python 3.11+ prerequisites and run `cargo build --release --manifest-path rust/Cargo.toml`.)
 ```
 
 ### 2. Ajanınıza Doğal Dille Komut Verin (`Ask your agent`)

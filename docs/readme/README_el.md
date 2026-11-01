@@ -76,7 +76,7 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 Χωρίς χειροκίνητες εντολές τερματικού ή επεξεργασία αρχείων JSON· απλώς ζητήστε από τον πράκτορά σας (Claude Code, Cursor, Codex, Gemini CLI κ.λπ.):
 
 ```text
-Εγκατάστησε το ANTI-REA σε ένα τοπικό εικονικό περιβάλλον Python (.venv) και σύνδεσε τον διακομιστή antirea.defense_mcp στις ρυθμίσεις MCP ώστε να μπορείς να τον χρησιμοποιήσεις αμέσως.
+Εγκατάστησε το ANTI-REA σε ένα τοπικό εικονικό περιβάλλον Python (.venv) και σύνδεσε τον διακομιστή antirea.defense_mcp στις ρυθμίσεις MCP ώστε να μπορείς να τον χρησιμοποιήσεις αμέσως. (Also automatically check/install any missing Rust, LLVM/Clang, MSVC, and Python 3.11+ prerequisites and run `cargo build --release --manifest-path rust/Cargo.toml`.)
 ```
 
 ### 2. Ζητήστε το σε φυσική γλώσσα (`Ask your agent`)

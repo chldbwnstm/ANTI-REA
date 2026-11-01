@@ -2,11 +2,13 @@
 
 Windows x86_64 환경에서 순수 Rust 다형성 방어 엔진(`antirea-rust-v12`)과 `antirea.defense_mcp` MCP/CLI 서버를 빌드하고 핵심 로직을 보호·검증하는 방법을 안내합니다. 세부 옵션은 [명령어 레퍼런스](reference.md), 필수 컴파일러 구성은 [툴체인 설정](toolchain.md)을 참고하세요.
 
-## 1. 사전 준비 (Prerequisites)
+## 1. 에이전트로 한 번에 설치 및 준비하기
 
-- **Rust 툴체인:** `rustc` / `cargo` 1.75+ (`x86_64-pc-windows-msvc` 타겟)
-- **LLVM / Clang & Windows SDK:** `clang` / `clang++` / `llvm-objdump` 및 Visual Studio C++ Build Tools (`link.exe`)
-- **Python 3.11+:** `antirea.defense_mcp` MCP/CLI 서버 및 11개 언어 프론트엔드 오케스트레이션용
+필수 도구(Rust 1.75+ `x86_64-pc-windows-msvc`, LLVM/Clang, Visual Studio C++ Build Tools, Python 3.11+)를 직접 설치할 필요 없이, 사용 중인 에이전트(Claude Code, Cursor, Codex, Gemini CLI 등)에게 아래 프롬프트를 전달하면 필수 도구 설치부터 순수 Rust 방어 엔진 빌드 및 MCP 서버 연결까지 자동으로 완료합니다:
+
+```text
+필수 도구(Rust 툴체인, LLVM/Clang, MSVC 빌드 도구, Python 3.11+)가 없으면 알아서 설치해주고, ANTI-REA를 로컬 Python 가상환경(.venv)에 설치한 뒤 순수 Rust 방어 엔진(cargo build --release --manifest-path rust/Cargo.toml)을 빌드해서 네가 바로 쓸 수 있게 antirea.defense_mcp 서버를 MCP에 연결해줘.
+```
 
 ## 2. 순수 Rust 방어 엔진 빌드
 

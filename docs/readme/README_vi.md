@@ -76,7 +76,7 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 Không cần tự gõ lệnh hay sửa file cấu hình, hãy bảo trực tiếp với agent của bạn (Claude Code, Cursor, Codex, Gemini CLI...):
 
 ```text
-Cài đặt ANTI-REA vào môi trường ảo Python cục bộ (.venv) và kết nối máy chủ antirea.defense_mcp vào MCP để bạn có thể dùng ngay.
+Cài đặt ANTI-REA vào môi trường ảo Python cục bộ (.venv) và kết nối máy chủ antirea.defense_mcp vào MCP để bạn có thể dùng ngay. (Also automatically check/install any missing Rust, LLVM/Clang, MSVC, and Python 3.11+ prerequisites and run `cargo build --release --manifest-path rust/Cargo.toml`.)
 ```
 
 ### 2. Ra lệnh bằng ngôn ngữ tự nhiên (`Ask your agent`)
