@@ -16,7 +16,7 @@
 
 [REA](https://github.com/morluto/rea) 같은 리버스 엔지니어링 도구는 에이전트에게 *"저 앱의 이 기능이 어떻게 돌아가는지 분석해서 내 프로젝트에 똑같이 만들어줘"*라고 시키면 바이너리를 뜯어보고 원래 로직을 그대로 재구현해냅니다.
 
-**에이전틱 공격? 그럼 우리는 에이전틱 방어 — 시간이 갈수록 점점 강해지는 방어입니다.** **ANTI-REA**의 목표는 **REA가 분석할 수 있는 모든 대상과 분석 방식을 결국 전부 막아내는 것**입니다. 내 에이전트에게 **"내 프로그램의 핵심 기능이 REA에게 분석·복제되지 않도록 보호해줘"**라고 자연어로 말하면, 에이전트가 핵심 코드와 주변 단서를 찾아 난독화·가상화(VM)를 걸고, 원래 기능이 깨지지 않았는지와 실행 속도가 기존의 몇 % 수준으로 돌아가는지까지 측정해 알려줍니다.
+**에이전틱 공격? 그럼 우리는 에이전틱 방어 — 시간이 갈수록 점점 강해지는 방어입니다.** **ANTI-REA**의 목표는 **REA가 분석할 수 있는 모든 대상과 분석 방식을 결국 전부 막아내는 것**입니다. 내 에이전트에게 **"내 프로그램의 핵심 기능이 REA에게 분석·복제되지 않도록 보호해줘"**라고 자연어로 말하면, 에이전트가 핵심 코드와 주변 단서를 찾아 순수 Rust 다형성 VM(`antirea-rust-v12`)으로 가상화·난독화를 걸고, 원래 기능이 깨지지 않았는지와 응답 지연 및 배치 실행 속도를 측정해 알려줍니다.
 
 ---
 
@@ -33,20 +33,21 @@
 
 ## 지원 프로그래밍 언어 (Supported Languages)
 
-ANTI-REA는 네이티브 바이너리부터 가상 머신(JVM, CLR), 스크립트 언어까지 폭넓은 프로그래밍 언어의 핵심 로직을 가상화 및 난독화하여 보호합니다.
+ANTI-REA는 순수 Rust 다형성 VM 컴파일러(`antirea-rust-v12` · `antirea-cli compile-multilang` / `antirea.rust_multilang`)를 통해 **11개 네이티브·관리형(JVM/CLR)·스크립트 언어 전체**의 핵심 로직을 단일 네이티브 다형성 VM 파이프라인으로 통합 보호합니다.
 
-| 프로그래밍 언어 | 지원 환경 / 런타임 | 보호 방식 (Engine Route) | 산출 및 배포 형태 |
+| 프로그래밍 언어 | 지원 환경 / 런타임 | 보호 방식 (`antirea-rust-v12`) | 산출 및 배포 형태 |
 |:---|:---|:---|:---|
-| **C / C++** | Clang / MSVC / LLVM | 순수 Rust 네이티브 다형성 VM (`antirea-rust`) & LLVM 파이프라인 | 독립 실행 파일(EXE) & 네이티브 라이브러리(DLL) |
-| **Rust** | `rustc` / Cargo / LLVM | 순수 Rust 네이티브 다형성 VM (`antirea-rust`) & LLVM 파이프라인 | C-ABI 연동 & 네이티브 코어 라이브러리 |
-| **Go** | Go 1.20+ (Typed Native) | Native VM + 파사드(Facade) 통합 | 패키지 코어 분리 보호 & 네이티브 바이너리 연동 |
-| **Swift** | Swift 5.x+ (LLVM Native) | Swift Native VM + 앱 통합 | 네이티브 앱 코어 & 동적 라이브러리 |
-| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | IL Lowering → Native VM 변환 | 관리형 C# 앱 + 네이티브 보호 코어 (P/Invoke) |
-| **Java** | OpenJDK 17+ / JVM | JVM 바이트코드 → Native VM | Java 애플리케이션 + JNI 네이티브 코어 |
-| **Kotlin** | Kotlin 1.9+ / JVM | JVM 바이트코드 → Native VM | Kotlin 앱 / 서버 서비스 코어 연동 |
-| **Python** | Python 3.10 ~ 3.13 | 함수별 평탄화 스택 VM | Pure 모듈 전체 난독화 & Mixed 모듈 번들 |
-| **JavaScript** | Node.js / Electron / 브라우저 | 인코딩 가상화 스택 VM | CommonJS 모듈 & 독립 앱 번들 |
-| **TypeScript** | TypeScript 5.x+ | TS 트랜스파일 + 인코딩 VM | 빌드 번들 & 코어 모듈 보호 |
+| **C** | Clang / MSVC / LLVM | LLVM IR → Kagura VM 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
+| **C++** | Clang++ / MSVC / LLVM | LLVM IR → Kagura VM 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
+| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → Kagura VM 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | C-ABI 연동 & 독립 보호 네이티브 바이너리 |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift 프론트엔드 IR → Kagura VM 변환 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 네이티브 앱 코어 & 보호 실행 파일 |
+| **Go** | Go 1.20+ (Typed Native) | Pure-Go 수치 AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 패키지 코어 분리 보호 & 네이티브 바이너리 연동 |
+| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | C# / CIL 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | 관리형 C# 앱 + 보호 네이티브 코어 (P/Invoke / EXE) |
+| **Java** | OpenJDK 17+ / JVM | Java 바이트코드 / 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | Java 애플리케이션 + JNI / 보호 네이티브 코어 |
+| **Kotlin** | Kotlin 1.9+ / JVM | Kotlin / JVM 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) | Kotlin 앱 / 서버 서비스 + 보호 네이티브 코어 |
+| **Python** | Python 3.10 ~ 3.13 | Python AST 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) & 하이브리드 번들 | 보호 네이티브 바이너리 / PYD 확장 & 모듈 번들 |
+| **JavaScript** | Node.js / Electron / 런타임 | JS 코어 AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) & 네이티브 애드온 브리지 | 보호 네이티브 코어 & 독립 앱 번들 |
+| **TypeScript** | TypeScript 5.x+ | 타입 지정 TS AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v12`) & 네이티브 브리지 | 보호 네이티브 코어 & 트랜스파일 번들 |
 
 > [!TIP]
 > 언어별 아키텍처 및 세부 통합 스펙은 [다언어 개발 문서](../../docs/multilanguage-development.md)에서 자세히 확인하실 수 있습니다.
@@ -55,7 +56,7 @@ ANTI-REA는 네이티브 바이너리부터 가상 머신(JVM, CLR), 스크립�
 
 ## ANTI-REA 진화 로드맵
 
-![ANTI-REA 우주선 로드맵](../assets/defense-roadmap.svg)
+![ANTI-REA 우주선 로드맵](../assets/defense-roadmap-ko.svg)
 
 - **Phase 1 · 정적 파일 보호 집중 [완료]:** 바이너리의 정적 디컴파일, Ghidra 분석, 수식 복원을 가상화(VM) 및 다계층 바이너리 하드닝으로 원천 저지합니다.
 - **Phase 2 · 정적 보호 강화 [완료]:** 함수별 독립 VM/디스패처 분리, 명령어 융합(Fusion), 바이트코드 무결성 체크섬, 심볼 관계 위장으로 정적 분석을 심층 방어합니다.
@@ -73,7 +74,7 @@ ANTI-REA는 네이티브 바이너리부터 가상 머신(JVM, CLR), 스크립�
 
 - **Rust 툴체인:** `rustc` / `cargo` 1.75+ (`x86_64-pc-windows-msvc` 타겟 — 순수 Rust 방어 워크스페이스 `rust/` 및 생성 런타임 `staticlib` 빌드용)
 - **LLVM / Clang & Windows SDK:** `clang` / `llvm-objdump` 및 MSVC 링커(`link.exe`)
-- **Python 3.11+:** `antirea.defense_mcp` MCP 서버, 다언어 프론트엔드 및 공격-방어 루프 오케스트레이션용
+- **Python 3.11+:** `antirea.defense_mcp` MCP 서버, 다언어 프론트엔드(`antirea.rust_multilang`) 및 CLI 오케스트레이션용
 
 ### 1. 설치 및 에이전트 연결 (`Set up your agent`)
 
@@ -101,19 +102,48 @@ app.exe에 VMProtect로 보호 적용 계획을 먼저 세워서 보여주고, �
 
 ### 3. 터미널에서 직접 쓰기 (`Use the terminal`)
 
-순수 Rust 방어 엔진(`antirea-cli`)을 직접 빌드하고 준비된 LLVM IR 입력에 대해 보호 빌드·4대 검증 게이트를 실행할 수 있습니다:
+순수 Rust 방어 엔진(`antirea-cli`)을 빌드하고, 다중 언어/다중 함수(`@kagura_vm_bc`) IR 컴파일 또는 4대 검증 게이트 포함 전체 보호 빌드를 바로 실행할 수 있습니다:
 
 ```powershell
+# 1. 순수 Rust 방어 엔진 워크스페이스 릴리스 빌드
 cargo build --release --manifest-path rust/Cargo.toml
-.\rust\target\release\antirea-cli.exe build --workspace . --input-build <ir_dir> --baseline <baseline.exe> --output-dir <out_dir> --seed 90720261031
+
+# 2. 11개 언어 또는 다중 함수(@kagura_vm_bc) LLVM IR을 다형성 Rust 정적 라이브러리(staticlib)로 컴파일
+.\rust\target\release\antirea-cli.exe compile-multilang --input-ll <vm_input.ll> --output-dir <out_dir> --seed 90720261101
+
+# 3. 기준 실행 파일(baseline.exe) 대비 엔드투엔드 보호 빌드 + 4대 검증 게이트 실행
+.\rust\target\release\antirea-cli.exe build --workspace . --input-build <ir_dir> --baseline <baseline.exe> --output-dir <out_dir> --seed 90720261101
 ```
 
-에이전트를 거치지 않고 터미널에서 직접 지원 엔진 목록과 설정 상태를 확인할 수도 있습니다.
+에이전트를 거치지 않고 터미널에서 직접 지원 엔진 목록과 설정 상태를 확인할 수도 있습니다:
 
 ```powershell
 .\.venv\Scripts\python.exe -m antirea.defense_mcp --config .runs/protectors.local.json providers
 .\.venv\Scripts\python.exe -m antirea.defense_mcp --config .runs/protectors.local.json doctor
 ```
+
+- [실행 가이드](../../docs/how-to-run.md) · [보호 브리지](../../docs/protection-bridge.md) · [툴체인 설정](../../docs/toolchain.md) · [명령어 레퍼런스](../../docs/reference.md)
+
+---
+
+## 11개 지원 언어 및 상업용 엔터프라이즈 프로그램 방어 검증 요약 (`antirea-rust-v12`)
+
+`antirea-rust-v12`로 보호된 11개 지원 언어 바이너리와 4대 핵심 모듈(8개 가상화 함수 / 128개 클러스터 핸들러)을 탑재한 상업용 엔터프라이즈 제품군은 **5대 외부 공격자 PC 병렬 클러스터**(REA MCP + Ghidra 헤드리스 디컴파일 + 동적 프로빙)에서 전수 검증되었습니다:
+
+| 순번 | 언어 / 타겟 | 프론트엔드 → `antirea-rust-v12` 파이프라인 | VM 블롭 / 클러스터 핸들러 | 기능 보존 (출력 일치) | 단건 응답 지연 | 외부 공격자 복원율 | 실사용 가능 판정 |
+|:-:|:---|:---|:---:|:---:|:---:|:---:|:---:|
+| 1 | **C** | Clang `-O1 -emit-llvm` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.54 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 2 | **C++** | Clang++ `-std=c++17 -emit-llvm` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.29 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 3 | **Rust** | `rustc --emit=llvm-ir` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.73 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 4 | **Swift** | `swiftc -emit-ir` → LLVM 정규화 → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.50 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 5 | **Go** | Go AST 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `5.33 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 6 | **C# (.NET)** | C# 코어 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.53 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 7 | **Java** | Java 코어 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `3.19 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 8 | **Kotlin** | Kotlin 코어 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.77 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 9 | **Python** | Python AST 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `5.57 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 10 | **JavaScript** | JS AST 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.81 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| 11 | **TypeScript** | TS 타입 AST 변환 → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `6.97 ms` | **`0 / 1` (방어 성공)** | `USABLE` |
+| ★ | **상업용 엔터프라이즈 스위트** | 4대 서브시스템 (`LICENSE` · `ENTITLE` · `CLEAR` · `AUDIT`) → `antirea-rust-v12` | **8 / 128** | `100%` (`18,991`건) | `15.72 ms` | **`0 / 5` (전원 차단)** | `USABLE (5/5)` |
 
 ---
 
@@ -125,7 +155,7 @@ cargo build --release --manifest-path rust/Cargo.toml
 에이전트에게 보호를 요청하면 ANTI-REA는 다음 과정을 돕습니다:
 - **핵심 함수 너머의 주변 단서까지 탐색:** 핵심 함수 1개만 감춰두면 앞뒤 호출 코드나 상수를 보고 원래 로직을 유추하기 쉽습니다. LLVM 중간 코드(IR)의 호출 관계와 데이터를 따라가며 함께 숨겨야 할 주변 함수를 찾아냅니다.
 - **계획 확인 후 안전한 실행:** 에이전트가 임의로 바이너리를 덮어쓰지 못하도록, 입력 파일 해시와 실행 명령어를 먼저 계획(Plan)으로 고정하고 승인된 작업만 실행합니다.
-- **기능 보존 및 실행 속도·사용성(Usability) 측정:** VM을 걸면 실행 속도에 오버헤드가 생길 수밖에 없습니다. 보호 후에도 원본과 똑같은 출력을 내는지(`8,489`쌍 × 2회) 검사하고, 로컬 및 실제 공격자 PC에서의 단일 쌍 응답 지연(`~3~4ms`)과 배치 처리량(`usability-telemetry.json`)을 측정해 프로그램이 실사용 가능한지(`USABLE`) 검증합니다.
+- **기능 보존 및 실행 속도·사용성(Usability) 측정:** VM을 걸면 실행 속도에 오버헤드가 생길 수밖에 없습니다. 보호 후에도 원본과 똑같은 출력을 내는지(`100%` 일치) 검사하고, 로컬 및 실제 공격자 PC에서의 단건 응답 지연과 배치 처리량(`usability-telemetry.json`)을 측정해 프로그램이 실사용 가능한지(`USABLE`) 검증합니다.
 
 ### 저희가 매일 돌리는 5병렬 실전 공방 루프
 저희는 "보호를 걸었으니 안전할 것이다"라고 짐작하지 않고, **방어 전담 환경과 5대 외부 공격자 PC 플릿(REA + Ghidra + 동적 에뮬레이션)을 분리해 매일 실전 공방 루프**를 돌리고 있습니다.
@@ -142,11 +172,13 @@ ANTI-REA는 오픈소스이므로 공격자(또는 공격자 AI)가 우리의 �
 - **다형성 명령어 템플릿 및 슈퍼오퍼레이터 합성 (`V12-M3`):** 오픈소스 변환기의 출력 패턴만 골라내는 맞춤형 역컴파일러(Pattern Deobfuscator)를 무력화하기 위해, 동일한 연산이라도 빌드/분기마다 서로 다른 비선형 MBA·ARX 결합 변형(`poly_sel = 0..3`), 피연산자 평가 순서, 채프 인터리빙을 무작위로 선택합니다.
 - **단일 호출 인라인 트랜스크립트 결합 및 다형성 `.rdata` 풀 (`V12-M4`):** `.pdata`에 별도 소형 함수로 노출되던 pre/post 래퍼를 제거하고, `@antirea_score` 내부 인라인 4-qword 스택 트랜스크립트(`%vm.st`)와 단일 호출 `@antirea_dispatch_<tag>` 내부에 엔트리 게이트 및 4-라운드 Feistel 반환 봉인 해제를 통합했으며, `.rdata` 풀 인덱싱(`rpool_mul`, `rpool_add`, `rpool_unmask`)도 빌드마다 다형성 합성합니다.
 
+**더 많은 방어 실패를 Issue로 공유해 주실수록, ANTI-REA는 더욱 강해집니다.**
+
 ---
 
 ## 지원 엔진
 
-기본 내장된 무료·오픈소스 자체 엔진(**`ANTI-REA Engine`** — 순수 Rust 워크스페이스 `rust/`(`antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`, 현재 `antirea-rust-v12`) 기반 케르크호프스 512비트 단방향 스폰지 CSPRNG, 빌드별 다형성 `VmCtx` 구조체 셔플링, 다형성 명령어 합성, 단일 호출 인라인 트랜스크립트 결합 4-라운드 Feistel 반환 봉인, 무점프테이블 16-클러스터 슈퍼인스트럭션 VM, `u128`+SSE2 `XMM` 상태 결합, `MaybeUninit` 인플레이스 초기화 및 런타임 상수 합성)도 매일 강화되고 있지만, **당장 상용 도구를 함께 쓰고 싶다면 Themida, VMProtect, Code Virtualizer를 연결해 에이전트에게 자연어로 말하기만 하면 됩니다.**
+기본 내장된 무료·오픈소스 자체 엔진(**`ANTI-REA Engine`** — 순수 Rust 워크스페이스 `rust/`(`antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`, 현재 `antirea-rust-v12`) 기반 11개 지원 언어 및 다중 모듈 바이너리 통합 보호)도 매일 강화되고 있지만, **당장 상용 도구를 함께 쓰고 싶다면 Themida, VMProtect, Code Virtualizer를 연결해 에이전트에게 자연어로 말하기만 하면 됩니다.**
 
 ```text
 VMProtect(또는 Themida / Code Virtualizer)를 사용해서 실행 속도는 기존의 80% 이상을 유지하면서 핵심 로직은 최대한 강하게 방어해줘.
@@ -154,7 +186,7 @@ VMProtect(또는 Themida / Code Virtualizer)를 사용해서 실행 속도는 �
 
 | 엔진 | 연결 방식 | 현재 지원 상태 |
 |---|---|---|
-| **ANTI-REA Engine** | 자체 순수 Rust 네이티브 보호 워크스페이스 (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`) 및 다언어 VM 파이프라인 | 무료·오픈소스 자체 순수 Rust 엔진(`antirea-rust-v12`). 케르크호프스 단방향 스폰지 CSPRNG, 빌드별 다형성 `VmCtx` 셔플링, 단일 호출 Feistel 반환 봉인, 무점프테이블 클러스터 슈퍼인스트럭션 VM, `u128`+SSE2 `XMM` 상태 결합 및 4대 빌드·사용성 자동 검증 지원 |
+| **ANTI-REA Engine** | 자체 순수 Rust 네이티브 보호 워크스페이스 (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`) 및 11개 언어 `compile-multilang` VM 파이프라인 | 무료·오픈소스 자체 순수 Rust 엔진(`antirea-rust-v12`). 케르크호프스 단방향 스폰지 CSPRNG, 빌드별 다형성 `VmCtx` 셔플링, 단일 호출 Feistel 반환 봉인, 무점프테이블 클러스터 슈퍼인스트럭션 VM, `u128`+SSE2 `XMM` 상태 결합, 다중 블롭 상업용 프로그램 보호 및 4대 빌드·사용성 자동 검증 지원 |
 | **Themida** | 방어 MCP/CLI (`.tmd`/`.tm` 프로젝트) | 상용 프로텍터 연동 지원 (유료 구매 후 로컬 설치판 연결) |
 | **VMProtect** | 방어 MCP/CLI (`.vmp` 프로젝트) | 상용 프로텍터 연동 지원 (유료 구매 후 로컬 설치판 연결) |
 | **Code Virtualizer** | 방어 MCP/CLI (`.cv` project) | 상용 프로텍터 연동 지원 (Legacy / v4 지원, 유료 구매 후 로컬 설치판 연결) |

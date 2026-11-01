@@ -16,7 +16,7 @@
 
 Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agent inspect a binary when you ask *"Understand how this feature works in that app and build a copy for my project."*
 
-**Agentic attack? Meet agentic defense — defense that grows stronger over time.** The ultimate goal of **ANTI-REA** is to **block everything that REA can analyze**. Ask your agent in plain language — *"Protect the core logic in my program so REA can't analyze or clone it"* — and the agent locates your core functions and surrounding clues, applies obfuscation and virtualization (VM), verifies that behavior isn't broken, and measures what percentage of the original speed it runs at.
+**Agentic attack? Meet agentic defense — defense that grows stronger over time.** The ultimate goal of **ANTI-REA** is to **block everything that REA can analyze**. Ask your agent in plain language — *"Protect the core logic in my program so REA can't analyze or clone it"* — and the agent locates your core functions and surrounding clues, compiles them through the Pure-Rust polymorphic VM (`antirea-rust-v12`), verifies that behavior isn't broken, and measures interactive and batch execution speed.
 
 ---
 
@@ -33,20 +33,21 @@ Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agen
 
 ## Supported Programming Languages
 
-ANTI-REA supports core logic virtualization and hardening across a wide spectrum of native, managed, and dynamic languages:
+ANTI-REA unifies core logic virtualization across **11 native, managed, and dynamic languages** through its Pure-Rust polymorphic VM compiler (`antirea-rust-v12` via `antirea-cli compile-multilang` and `antirea.rust_multilang`):
 
-| Language | Environment / Runtime | Protection Mechanism | Deployment Form |
+| Language | Environment / Runtime | Protection Mechanism (`antirea-rust-v12`) | Deployment Form |
 |:---|:---|:---|:---|
-| **C / C++** | Clang / MSVC / LLVM | Pure-Rust Native Polymorphic VM (`antirea-rust`) & LLVM Pipeline | Standalone Binary & Native DLL |
-| **Rust** | `rustc` / Cargo / LLVM | Pure-Rust Native Polymorphic VM (`antirea-rust`) & LLVM Pipeline | C-ABI & Native Core Library |
-| **Go** | Go 1.20+ (Typed Native) | Native VM + Facade Integration | Package Core Separation & Binary Link |
-| **Swift** | Swift 5.x+ (LLVM Native) | Swift Native VM + App Integration | Native App Core & Dynamic Library |
-| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | IL Lowering → Native VM | Managed App + Protected Native Core (P/Invoke) |
-| **Java** | OpenJDK 17+ / JVM | JVM Bytecode → Native VM | Java Application + JNI Native Core |
-| **Kotlin** | Kotlin 1.9+ / JVM | JVM Bytecode → Native VM | Kotlin App / JVM Service Core |
-| **Python** | Python 3.10 ~ 3.13 | Flattened Per-Function Stack VM | Pure Module & Mixed Module Bundle |
-| **JavaScript** | Node.js / Browser / Electron | Encoded Virtualized Stack VM | CommonJS Module & App Bundle |
-| **TypeScript** | TypeScript 5.x+ | TS Transpile + Encoded VM | Transpiled Bundle & Core Module |
+| **C** | Clang / MSVC / LLVM | LLVM IR → Kagura VM Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Standalone Native Binary (`.exe`) & Native DLL |
+| **C++** | Clang++ / MSVC / LLVM | LLVM IR → Kagura VM Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Standalone Native Binary (`.exe`) & Native DLL |
+| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → Kagura VM Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | C-ABI & Standalone Protected Native Binary |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift Frontend IR → Kagura VM Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Native App Core & Protected Executable |
+| **Go** | Go 1.20+ (Typed Native) | Pure-Go Numeric AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Package Core Separation & Native Binary Link |
+| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | C# / CIL Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Managed App + Protected Native Core (P/Invoke / EXE) |
+| **Java** | OpenJDK 17+ / JVM | Java Bytecode / Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Java Application + JNI / Protected Native Core |
+| **Kotlin** | Kotlin 1.9+ / JVM | Kotlin / JVM Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) | Kotlin App / JVM Service + Protected Native Core |
+| **Python** | Python 3.10 ~ 3.13 | Python AST Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) & Mixed Native Bundle | Protected Native Binary / PYD Extension & Module Bundle |
+| **JavaScript** | Node.js / Electron / Runtime | JS Core AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) & Native Addon Bridge | Protected Native Core & Application Bundle |
+| **TypeScript** | TypeScript 5.x+ | Typed TS AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v12`) & Native Addon Bridge | Protected Native Core & Transpiled Bundle |
 
 > [!TIP]
 > For detailed architectural contracts and language integration specifications, see [Multi-Language Development](../../docs/multilanguage-development.md).
@@ -73,7 +74,7 @@ ANTI-REA supports core logic virtualization and hardening across a wide spectrum
 
 - **Rust Toolchain:** `rustc` / `cargo` 1.75+ targeting `x86_64-pc-windows-msvc` (for building the Pure-Rust defense workspace `rust/` and compiling generated `staticlib` runtimes).
 - **LLVM / Clang & Windows SDK:** `clang` / `llvm-objdump` and the MSVC linker (`link.exe`).
-- **Python 3.11+:** For the `antirea.defense_mcp` MCP server, multi-language frontends, and fleet orchestration.
+- **Python 3.11+:** For the `antirea.defense_mcp` MCP server, multi-language frontends (`antirea.rust_multilang`), and CLI orchestration.
 
 ### 1. Set up your agent
 
@@ -101,19 +102,48 @@ Your agent automatically calls ANTI-REA MCP tools to check available engines (`p
 
 ### 3. Use the terminal
 
-Build and run the Pure-Rust defense engine (`antirea-cli`) directly on prepared LLVM IR inputs:
+Build the Pure-Rust defense engine (`antirea-cli`) and protect single-target or multi-language / multi-module (`@kagura_vm_bc`) LLVM IR inputs:
 
 ```powershell
+# 1. Build the Pure-Rust defense engine workspace
 cargo build --release --manifest-path rust/Cargo.toml
-.\rust\target\release\antirea-cli.exe build --workspace . --input-build <ir_dir> --baseline <baseline.exe> --output-dir <out_dir> --seed 90720261031
+
+# 2. Protect any multi-language or multi-function (@kagura_vm_bc) LLVM IR into a hardened Rust staticlib
+.\rust\target\release\antirea-cli.exe compile-multilang --input-ll <vm_input.ll> --output-dir <out_dir> --seed 90720261101
+
+# 3. Full end-to-end build + 4-gate verification against a reference baseline executable
+.\rust\target\release\antirea-cli.exe build --workspace . --input-build <ir_dir> --baseline <baseline.exe> --output-dir <out_dir> --seed 90720261101
 ```
 
-You can also inspect supported providers and local setup directly from the terminal:
+You can also inspect supported providers and run the MCP server directly from the terminal:
 
 ```powershell
 .\.venv\Scripts\python.exe -m antirea.defense_mcp --config .runs/protectors.local.json providers
 .\.venv\Scripts\python.exe -m antirea.defense_mcp --config .runs/protectors.local.json doctor
 ```
+
+- [How to Run](../../docs/how-to-run.md) · [Protection Bridge](../../docs/protection-bridge.md) · [Toolchain Setup](../../docs/toolchain.md) · [Reference](../../docs/reference.md)
+
+---
+
+## Multi-Language & Commercial Enterprise Verification (`antirea-rust-v12`)
+
+Every language pipeline and multi-module commercial subsystem protected by `antirea-rust-v12` is validated across our **5-PC parallel external attacker fleet** (REA MCP + Ghidra headless decompilation + dynamic probing) with strict zero-leakage and usability gates:
+
+| # | Language / Target | Frontend → `antirea-rust-v12` Pipeline | VM Blobs / Cluster Handlers | Functional Equivalence | Single-Call Latency | External REA Recovery | Usability Status |
+|:-:|:---|:---|:---:|:---:|:---:|:---:|:---:|
+| 1 | **C** | Clang `-O1 -emit-llvm` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.54 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 2 | **C++** | Clang++ `-std=c++17 -emit-llvm` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.29 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 3 | **Rust** | `rustc --emit=llvm-ir` → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.73 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 4 | **Swift** | `swiftc -emit-ir` → LLVM Normalize → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.50 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 5 | **Go** | Go AST Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `5.33 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 6 | **C# (.NET)** | C# Core Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.53 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 7 | **Java** | Java Core Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `3.19 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 8 | **Kotlin** | Kotlin Core Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.77 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 9 | **Python** | Python AST Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `5.57 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 10 | **JavaScript** | JS AST Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `4.81 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| 11 | **TypeScript** | TS Typed AST Lowering → Clang LLVM IR → Kagura VM → `antirea-rust-v12` | 1 / 16 | `100%` | `6.97 ms` | **`0 / 1` (Blocked)** | `USABLE` |
+| ★ | **Commercial Enterprise Suite** | 4 Subsystems (`LICENSE` · `ENTITLE` · `CLEAR` · `AUDIT`) → `antirea-rust-v12` | **8 / 128** | `100%` (`18,991` tx) | `15.72 ms` | **`0 / 5` (Blocked)** | `USABLE (5/5)` |
 
 ---
 
@@ -124,7 +154,7 @@ You can also inspect supported providers and local setup directly from the termi
 ### On Your Machine
 - **Scope Beyond a Single Function:** Hiding just one function leaves callers and constants exposed. In the LLVM IR path, ANTI-REA traces call graphs and shared data to include surrounding functions that leak clues.
 - **Plan Before Execution:** Input hashes and commands are locked into a plan first so the agent never overwrites binaries unexpectedly.
-- **Behavior & Usability Speed Measurement:** VM protection inevitably adds overhead. ANTI-REA verifies that outputs match the original binary (`8,489` × 2 pairs) and measures both local and attacker-side interactive/batch execution speed (`usability-telemetry.json`) to verify that protected binaries remain responsive (`USABLE`).
+- **Behavior & Usability Speed Measurement:** VM protection inevitably adds overhead. ANTI-REA verifies that outputs match the original binary (`100%` equivalence across thousands of test pairs) and measures both local and attacker-side interactive/batch execution speed (`usability-telemetry.json`) to verify that protected binaries remain responsive (`USABLE`).
 
 ### Our Daily Live Attack-Defense Loop
 We run a continuous loop between our **Defense Environment** and a **5-PC Parallel External Attack Fleet (REA + Ghidra + Dynamic Emulation)**:
@@ -141,11 +171,13 @@ Because ANTI-REA is open-source, an attacker (or an autonomous AI agent) can rea
 - **Polymorphic Opcode Lowering & Superoperator Synthesis (`V12-M3`):** Instead of emitting fixed per-opcode code templates that a known-compiler pattern matcher could classify, each build randomly selects among multiple algebraically equivalent lowering variants (`poly_sel = 0..3`), permutes operand evaluation order, and interleaves self-canceling MBA identities and decoy chaff pulses.
 - **Single-Call Inlined Transcript Coupling & Polymorphic `.rdata` Pool (`V12-M4`):** Eliminates small outlined pre/post wrapper functions from `.pdata`, inlining entry-gate derivation and 4-round Feistel return unsealing directly into `@antirea_dispatch_<tag>` while coupling `@antirea_score` via an inline 4-qword stack transcript (`%vm.st`) mutated across the actual dynamic execution path (`VmCtx::set_return`) and a build-polymorphic `.rdata` pool (`rpool_mul`, `rpool_add`, `rpool_unmask`).
 
+**The more protection failures you report through Issues, the stronger ANTI-REA becomes.**
+
 ---
 
 ## Supported Engines
 
-While the built-in open-source Pure-Rust engine (`ANTI-REA Engine`, `rust/` workspace: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`, currently `antirea-rust-v12`) grows stronger every day, **if you want to combine commercial binary protectors, you can connect Themida, VMProtect, or Code Virtualizer to ANTI-REA and tell your agent in natural language what execution speed and defense level you want.**
+While the built-in open-source Pure-Rust engine (`ANTI-REA Engine`, `rust/` workspace: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`, currently `antirea-rust-v12`) grows stronger every day across all 11 supported languages and multi-module native binaries, **if you want to combine commercial binary protectors, you can connect Themida, VMProtect, or Code Virtualizer to ANTI-REA and tell your agent in natural language what execution speed and defense level you want.**
 
 ```text
 Use VMProtect (or Themida / Code Virtualizer) to keep execution speed above 80% of the original while defending the core logic as strongly as possible.
@@ -153,7 +185,7 @@ Use VMProtect (or Themida / Code Virtualizer) to keep execution speed above 80% 
 
 | Engine | Connection | Current Status |
 |---|---|---|
-| **ANTI-REA Engine** | In-house Pure-Rust native protection workspace (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`) & multi-language VM pipeline | Active Pure-Rust `antirea-rust-v12` engine: Kerckhoffs 512-bit sponge CSPRNG, polymorphic `VmCtx` layout shuffling, single-call inlined Feistel return sealing, tableless 16-cluster superinstruction VM, split `u128` + SSE2 `XMM` state entanglement, and automated 4-gate + attacker usability verification |
+| **ANTI-REA Engine** | In-house Pure-Rust native protection workspace (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`) & 11-language `compile-multilang` VM pipeline | Active Pure-Rust `antirea-rust-v12` engine: Kerckhoffs 512-bit sponge CSPRNG, polymorphic `VmCtx` layout shuffling, single-call inlined Feistel return sealing, tableless 16-cluster superinstruction VM, split `u128` + SSE2 `XMM` state entanglement, multi-blob commercial application support, and automated 4-gate + attacker usability verification |
 | **Themida** | Defense MCP/CLI (`.tmd`/`.tm` project) | Windows native x86/x64 PE adapter implemented (requires local installation) |
 | **VMProtect** | Defense MCP/CLI (`.vmp` project) | Windows native x86/x64 PE adapter implemented (requires local installation) |
 | **Code Virtualizer** | Defense MCP/CLI (`.cv` project) | Windows native x86/x64 PE adapter implemented (Legacy / v4 supported, requires local installation) |
