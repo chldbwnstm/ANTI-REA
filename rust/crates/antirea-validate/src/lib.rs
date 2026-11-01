@@ -121,6 +121,35 @@ pub fn scan_pe_for_forbidden_constants(pe_bytes: &[u8]) -> Vec<String> {
     hits
 }
 
+pub fn scan_pe_for_seed_leakage(pe_bytes: &[u8], seed: u64) -> Vec<String> {
+    let mut hits = Vec::new();
+    let le8 = seed.to_le_bytes();
+    if pe_bytes.windows(8).any(|w| w == le8) {
+        hits.push("seed_raw_le64".to_string());
+    }
+    let be8 = seed.to_be_bytes();
+    if pe_bytes.windows(8).any(|w| w == be8) {
+        hits.push("seed_raw_be64".to_string());
+    }
+    let hex_lower = format!("{seed:016x}");
+    if pe_bytes
+        .windows(hex_lower.len())
+        .any(|w| w.eq_ignore_ascii_case(hex_lower.as_bytes()))
+    {
+        hits.push("seed_ascii_hex16".to_string());
+    }
+    if seed >= 100_000 {
+        let dec_str = format!("{seed}");
+        if pe_bytes
+            .windows(dec_str.len())
+            .any(|w| w == dec_str.as_bytes())
+        {
+            hits.push("seed_ascii_decimal".to_string());
+        }
+    }
+    hits
+}
+
 pub fn generate_test_pairs(seed: u64, random_count: usize) -> Vec<(u32, u32)> {
     let mut pairs = Vec::with_capacity(297 + random_count);
     let edge_vals: [u32; 17] = [
@@ -334,9 +363,12 @@ pub fn build_and_validate_candidate(
     let exe_sha256 = sha256_hex(&exe_bytes);
     let core_obj_sha256 = sha256_hex(&fs::read(&core_obj).unwrap());
     let staticlib_sha256 = sha256_hex(&fs::read(&staticlib_path).unwrap());
-    let forbidden_hits = scan_pe_for_forbidden_constants(&exe_bytes);
+    let mut forbidden_hits = scan_pe_for_forbidden_constants(&exe_bytes);
+    let seed_leak_hits = scan_pe_for_seed_leakage(&exe_bytes, seed);
+    forbidden_hits.extend(seed_leak_hits.clone());
 
     let inspection_passed = forbidden_hits.is_empty()
+        && seed_leak_hits.is_empty()
         && metrics.sse2_xmm_instructions >= 10
         && metrics.u128_mul_instructions >= 2
         && metrics.conditional_branches >= 150
@@ -431,8 +463,14 @@ pub fn build_and_validate_candidate(
     let base_med = base_times[2].max(0.0001);
     let prev_med = prev_times[2].max(0.0001);
     let cand_med = cand_times[2];
+    let cand_p95 = cand_times[4];
+    let cand_max = cand_times[4];
     let single_med_ms = single_times_ms[2];
+    let single_p95_ms = single_times_ms[4];
+    let single_max_ms = single_times_ms[4];
     let batch100_med_ms = batch100_times_ms[2];
+    let batch100_p95_ms = batch100_times_ms[4];
+    let batch100_max_ms = batch100_times_ms[4];
     let us_per_pair = (cand_med * 1_000_000.0) / 2048.0;
     let throughput_pps = 2048.0 / cand_med.max(0.0001);
     let ratio_vs_prev = cand_med / prev_med;
@@ -521,8 +559,14 @@ pub fn build_and_validate_candidate(
     "baseline_median_seconds": {base_med:.6},
     "previous_median_seconds": {prev_med:.6},
     "candidate_median_seconds": {cand_med:.6},
+    "candidate_p95_seconds": {cand_p95:.6},
+    "candidate_max_seconds": {cand_max:.6},
     "single_pair_median_ms": {single_med_ms:.3},
+    "single_pair_p95_ms": {single_p95_ms:.3},
+    "single_pair_max_ms": {single_max_ms:.3},
     "batch_100_median_ms": {batch100_med_ms:.3},
+    "batch_100_p95_ms": {batch100_p95_ms:.3},
+    "batch_100_max_ms": {batch100_max_ms:.3},
     "us_per_pair": {us_per_pair:.3},
     "throughput_pairs_per_sec": {throughput_pps:.1},
     "candidate_vs_previous": {ratio_vs_prev:.4},
@@ -601,12 +645,13 @@ pub fn compile_multilang_rust_runtime(
         ));
     }
     let staticlib_sha256 = sha256_hex(&fs::read(&staticlib_path).unwrap());
+    let seed_commitment_sha256 = sha256_hex(format!("antirea-v13-seed-commitment:{seed}").as_bytes());
     let report = format!(
         r#"{{
   "status": "passed",
   "engine": "antirea-rust-v12",
   "format_version": 12,
-  "seed": {seed},
+  "seed_commitment_sha256": "{seed_commitment_sha256}",
   "blob_count": {},
   "dispatcher_symbols": {:?},
   "staticlib_path": "{}",

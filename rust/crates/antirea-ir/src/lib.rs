@@ -381,14 +381,69 @@ pub fn fuse_instructions(instructions: &[Instruction]) -> Vec<Instruction> {
         .filter(|inst| is_jump(&inst.name))
         .map(|inst| inst.values[0] as u32)
         .collect();
+    let mut reg_reads: BTreeMap<u64, usize> = BTreeMap::new();
+    for inst in instructions {
+        if inst.name == "OP_PUSH_REG" && !inst.values.is_empty() {
+            *reg_reads.entry(inst.values[0]).or_insert(0) += 1;
+        }
+    }
     let mut result = Vec::new();
     let mut i = 0usize;
+    let mut chained_count = 0usize;
     while i < instructions.len() {
         let tail = &instructions[i..];
         let mut candidate: Option<Instruction> = None;
         let mut count = 1usize;
 
-        if tail.len() >= 4
+        // V13-M2 (L1 Loki / L6 VMHunt): Fuse 2-ALU data-dependent chains (8 raw ops -> 1 superoperator)
+        // where intermediate register dst1 is single-use or immediately overwritten by dst2,
+        // eliminating intermediate VmCtx slot writes completely.
+        if chained_count < 32
+            && tail.len() >= 8
+            && tail[0].name == "OP_PUSH_REG"
+            && (is_immediate(&tail[1].name) || tail[1].name == "OP_PUSH_REG")
+            && is_fusable_alu(&tail[2].name)
+            && tail[3].name == "OP_POP_REG"
+            && tail[4].name == "OP_PUSH_REG"
+            && tail[4].values[0] == tail[3].values[0]
+            && (is_immediate(&tail[5].name)
+                || (tail[5].name == "OP_PUSH_REG" && tail[5].values[0] != tail[3].values[0]))
+            && is_fusable_alu(&tail[6].name)
+            && tail[7].name == "OP_POP_REG"
+            && (tail[3].values[0] == tail[7].values[0]
+                || reg_reads.get(&tail[3].values[0]).copied().unwrap_or(0) == 1)
+            && !tail[1..8].iter().any(|item| targets.contains(&item.offset))
+        {
+            let is_reg1 = tail[1].name == "OP_PUSH_REG";
+            let mode1 = if is_reg1 { "RR" } else { "RI" };
+            let alu1 = &tail[2].name[3..];
+            let is_reg2 = tail[5].name == "OP_PUSH_REG";
+            let mode2 = if is_reg2 { "RR" } else { "RI" };
+            let alu2 = &tail[6].name[3..];
+            candidate = Some(Instruction {
+                offset: tail[0].offset,
+                name: format!("F_CHAIN_{mode1}_{alu1}__{mode2}_{alu2}"),
+                values: vec![
+                    tail[7].values[0],
+                    tail[0].values[0],
+                    tail[2].values[0],
+                    tail[1].values[0],
+                    tail[6].values[0],
+                    tail[5].values[0],
+                ],
+                widths: vec![
+                    1,
+                    1,
+                    1,
+                    if is_reg1 { 1 } else { 8 },
+                    1,
+                    if is_reg2 { 1 } else { 8 },
+                ],
+                originals: 8,
+            });
+            count = 8;
+            chained_count += 1;
+        } else if tail.len() >= 4
             && tail[0].name == "OP_PUSH_REG"
             && (is_immediate(&tail[1].name) || tail[1].name == "OP_PUSH_REG")
             && is_fusable_alu(&tail[2].name)
@@ -821,6 +876,33 @@ pub fn eval_instructions(
             "F_CONST" => {
                 let d = inst.values[0] as usize;
                 regs[d] = inst.values[1];
+            }
+            _ if name.starts_with("F_CHAIN_") => {
+                let rest = &name["F_CHAIN_".len()..];
+                let (part1, part2) = rest
+                    .split_once("__")
+                    .ok_or_else(|| format!("Invalid F_CHAIN instruction: {name}"))?;
+                let is_rr1 = part1.starts_with("RR_");
+                let alu1 = &part1[3..];
+                let is_rr2 = part2.starts_with("RR_");
+                let alu2 = &part2[3..];
+                let d2 = inst.values[0] as usize;
+                let s1 = inst.values[1] as usize;
+                let w1 = inst.values[2] as u8;
+                let a1 = regs[s1];
+                let b1 = if is_rr1 {
+                    regs[inst.values[3] as usize]
+                } else {
+                    inst.values[3]
+                };
+                let w2 = inst.values[4] as u8;
+                let b2 = if is_rr2 {
+                    regs[inst.values[5] as usize]
+                } else {
+                    inst.values[5]
+                };
+                let mid = eval_alu(alu1, a1, b1, w1)?;
+                regs[d2] = eval_alu(alu2, mid, b2, w2)?;
             }
             _ if name.starts_with("F_RR_") || name.starts_with("F_RI_") => {
                 let is_rr = name.starts_with("F_RR_");

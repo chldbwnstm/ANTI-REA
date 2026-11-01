@@ -97,73 +97,165 @@ pub const FORBIDDEN_CONSTANTS: &[u64] = &[
     0x8a9559c6c7053a49,
 ];
 
-/// V12-M1 (Kerckhoffs's Principle): 512-bit (8-word) Non-Invertible Cryptographic ARX Sponge CSPRNG.
-/// Even if an attacker has the full open-source compiler (`antirea-passes`) and extracts constants
-/// from `.text` or `.rdata`, 448 bits of internal state are compressed and ratcheted via non-linear
-/// AND/ARX transitions on every draw, making seed or sibling-key inversion mathematically infeasible.
-#[derive(Debug, Clone)]
-pub struct KerckhoffsSpongeRng {
-    s: [u64; 8],
-    ctr: u64,
+/// V13-M1 (RFC 8439 §2.1 & §2.3 + Kerckhoffs's Principle): Standard 20-Round ChaCha20 CSPRNG
+/// with 256-bit key state, 96-bit domain-separated nonce, and fast-key-erasure ratcheting.
+#[inline]
+pub fn chacha20_quarter_round(state: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize) {
+    state[a] = state[a].wrapping_add(state[b]);
+    state[d] = (state[d] ^ state[a]).rotate_left(16);
+    state[c] = state[c].wrapping_add(state[d]);
+    state[b] = (state[b] ^ state[c]).rotate_left(12);
+    state[a] = state[a].wrapping_add(state[b]);
+    state[d] = (state[d] ^ state[a]).rotate_left(8);
+    state[c] = state[c].wrapping_add(state[d]);
+    state[b] = (state[b] ^ state[c]).rotate_left(7);
 }
 
-pub type SplitMix64 = KerckhoffsSpongeRng;
-
-impl KerckhoffsSpongeRng {
-    #[inline]
-    fn arx_quarter(s: &mut [u64; 8], a: usize, b: usize, c: usize, d: usize) {
-        s[a] = s[a].wrapping_add(s[b]);
-        s[d] = (s[d] ^ s[a]).rotate_left(32);
-        s[c] = s[c].wrapping_add(s[d]);
-        s[b] = (s[b] ^ s[c]).rotate_left(24);
-        s[a] = s[a].wrapping_add(s[b]);
-        s[d] = (s[d] ^ s[a]).rotate_left(16);
-        s[c] = s[c].wrapping_add(s[d]);
-        s[b] = (s[b] ^ s[c]).rotate_left(63);
+#[inline]
+pub fn chacha20_block(key: &[u32; 8], counter: u32, nonce: &[u32; 3]) -> [u32; 16] {
+    let initial: [u32; 16] = [
+        0x6170_7865,
+        0x3320_646e,
+        0x7962_2d32,
+        0x6b20_6574,
+        key[0],
+        key[1],
+        key[2],
+        key[3],
+        key[4],
+        key[5],
+        key[6],
+        key[7],
+        counter,
+        nonce[0],
+        nonce[1],
+        nonce[2],
+    ];
+    let mut working = initial;
+    for _ in 0..10 {
+        // Column rounds
+        chacha20_quarter_round(&mut working, 0, 4, 8, 12);
+        chacha20_quarter_round(&mut working, 1, 5, 9, 13);
+        chacha20_quarter_round(&mut working, 2, 6, 10, 14);
+        chacha20_quarter_round(&mut working, 3, 7, 11, 15);
+        // Diagonal rounds
+        chacha20_quarter_round(&mut working, 0, 5, 10, 15);
+        chacha20_quarter_round(&mut working, 1, 6, 11, 12);
+        chacha20_quarter_round(&mut working, 2, 7, 8, 13);
+        chacha20_quarter_round(&mut working, 3, 4, 9, 14);
     }
+    for i in 0..16 {
+        working[i] = working[i].wrapping_add(initial[i]);
+    }
+    working
+}
 
-    #[inline]
-    fn permute(&mut self, rounds: usize) {
-        for r in 0..rounds {
-            self.ctr = self.ctr.wrapping_add(0x243f_6a88_85a3_08d3 ^ (r as u64));
-            self.s[0] = self.s[0].wrapping_add(self.ctr);
-            Self::arx_quarter(&mut self.s, 0, 1, 2, 3);
-            Self::arx_quarter(&mut self.s, 4, 5, 6, 7);
-            Self::arx_quarter(&mut self.s, 0, 5, 2, 7);
-            Self::arx_quarter(&mut self.s, 4, 1, 6, 3);
-            // Non-invertible ratchet feedback (one-way state destruction)
-            let ratchet = (self.s[0] & self.s[4])
-                .wrapping_add(self.s[1] & !self.s[5])
-                .rotate_left(19)
-                ^ self.s[2].wrapping_mul(self.s[6] | 1);
-            self.s[7] = self.s[7].wrapping_add(ratchet);
-            self.s[3] ^= ratchet.rotate_right(13);
+#[derive(Debug, Clone)]
+pub struct ChaCha20Csprng {
+    key: [u32; 8],
+    nonce: [u32; 3],
+    counter: u32,
+    buf: [u64; 8],
+    pos: usize,
+}
+
+pub type KerckhoffsSpongeRng = ChaCha20Csprng;
+pub type SplitMix64 = ChaCha20Csprng;
+
+impl ChaCha20Csprng {
+    pub fn from_seed_and_domain(seed: u64, domain: &[u8]) -> Self {
+        let lo = seed as u32;
+        let hi = (seed >> 32) as u32;
+        let mut dom_words = [0x243f_6a88u32, 0x85a3_08d3u32, 0x1319_8a2eu32, 0x0370_7344u32];
+        for (idx, &b) in domain.iter().enumerate() {
+            let slot = idx & 3;
+            dom_words[slot] = dom_words[slot]
+                .rotate_left(7)
+                .wrapping_add((b as u32).wrapping_mul(0x9e37_79b9))
+                ^ (idx as u32);
         }
-    }
-
-    pub fn new(seed: u64) -> Self {
-        let mut s = [
-            seed ^ 0x6a09_e667_f3bc_c908,
-            seed.rotate_left(17) ^ 0xbb67_ae85_84ca_a73b,
-            seed.rotate_left(31) ^ 0x3c6e_f372_fe94_f82b,
-            seed.rotate_left(47) ^ 0xa54f_f53a_5f1d_36f1,
-            (!seed).wrapping_mul(0x510e_527f_ade6_82d1),
-            seed.swap_bytes() ^ 0x9b05_688c_2b3e_6c1f,
-            seed.wrapping_add(0x1f83_d9ab_fb41_bd6b),
-            seed.rotate_right(19) ^ 0x5be0_cd19_137e_2179,
+        let init_key: [u32; 8] = [
+            lo ^ 0x6a09_e667,
+            hi ^ 0xbb67_ae85,
+            lo.rotate_left(13) ^ dom_words[0],
+            hi.rotate_left(17) ^ dom_words[1],
+            (!lo).wrapping_mul(0x510e_527f) ^ dom_words[2],
+            (!hi).wrapping_mul(0x9b05_688c) ^ dom_words[3],
+            lo.swap_bytes() ^ 0x1f83_d9ab,
+            hi.swap_bytes() ^ 0x5be0_cd19,
         ];
-        let mut rng = Self { s: [0; 8], ctr: seed ^ 0x7f4a_7c15_9e37_79b9 };
-        s[0] ^= 1;
-        rng.s = s;
-        rng.permute(12);
+        let init_nonce: [u32; 3] = [
+            dom_words[0] ^ hi.rotate_left(7),
+            dom_words[1] ^ lo.rotate_right(11),
+            dom_words[2] ^ dom_words[3] ^ (domain.len() as u32),
+        ];
+        // Run one RFC 8439 ChaCha20 KDF block (counter = 0) to derive the 256-bit stream key & 96-bit nonce
+        let kdf = chacha20_block(&init_key, 0, &init_nonce);
+        let key = [kdf[0], kdf[1], kdf[2], kdf[3], kdf[4], kdf[5], kdf[6], kdf[7]];
+        let nonce = [kdf[8] ^ kdf[11], kdf[9] ^ kdf[12], kdf[10] ^ kdf[13]];
+        let mut rng = Self {
+            key,
+            nonce,
+            counter: 1,
+            buf: [0u64; 8],
+            pos: 8,
+        };
+        rng.refill();
         rng
     }
 
+    pub fn new(seed: u64) -> Self {
+        Self::from_seed_and_domain(seed, b"antirea-v13-master-csprng")
+    }
+
+    pub fn derive_stream(&self, domain: &[u8]) -> Self {
+        let mut dom_nonce = self.nonce;
+        for (idx, &b) in domain.iter().enumerate() {
+            dom_nonce[idx % 3] = dom_nonce[idx % 3]
+                .rotate_left(11)
+                .wrapping_add((b as u32).wrapping_mul(0x7f4a_7c15))
+                ^ ((idx as u32) << 8);
+        }
+        let sub = chacha20_block(&self.key, self.counter.wrapping_add(0x4000_0000), &dom_nonce);
+        let key = [sub[0], sub[1], sub[2], sub[3], sub[4], sub[5], sub[6], sub[7]];
+        let nonce = [sub[8] ^ sub[13], sub[9] ^ sub[14], sub[10] ^ sub[15]];
+        let mut child = Self {
+            key,
+            nonce,
+            counter: 1,
+            buf: [0u64; 8],
+            pos: 8,
+        };
+        child.refill();
+        child
+    }
+
+    #[inline]
+    fn refill(&mut self) {
+        let words = chacha20_block(&self.key, self.counter, &self.nonce);
+        self.counter = self.counter.wrapping_add(1);
+        for i in 0..8 {
+            self.buf[i] = (words[2 * i] as u64) | ((words[2 * i + 1] as u64) << 32);
+        }
+        // Fast-key-erasure ratchet every 4 blocks
+        if (self.counter & 3) == 0 {
+            let r = chacha20_block(&self.key, self.counter, &self.nonce);
+            self.counter = self.counter.wrapping_add(1);
+            for i in 0..8 {
+                self.key[i] ^= r[i + 8];
+            }
+        }
+        self.pos = 0;
+    }
+
     pub fn next_u64(&mut self) -> u64 {
-        self.permute(2);
-        let fold_a = (self.s[0] ^ self.s[4]).wrapping_add(self.s[1] ^ self.s[5]);
-        let fold_b = (self.s[2].wrapping_mul(self.s[6] | 1)) ^ self.s[3].rotate_left(29);
-        fold_a.rotate_left(23).wrapping_add(fold_b) ^ self.s[7]
+        if self.pos >= 8 {
+            self.refill();
+        }
+        let out = self.buf[self.pos];
+        self.buf[self.pos] = 0;
+        self.pos += 1;
+        out
     }
 
     pub fn next_odd_u64(&mut self) -> u64 {
@@ -359,6 +451,16 @@ fn emit_outer_dispatch_tree(leaves: &[String], lo: usize, hi: usize, indent: usi
     )
 }
 
+fn draw_ring_pair(rng: &mut SplitMix64) -> (u64, u64) {
+    loop {
+        let m = draw_safe_odd_u64(rng);
+        let inv = mod_inv_u64(m);
+        if is_safe_literal(inv) {
+            return (m, inv);
+        }
+    }
+}
+
 fn emit_alu_expr(
     op: &str,
     a_expr: &str,
@@ -368,47 +470,37 @@ fn emit_alu_expr(
     rng: &mut SplitMix64,
 ) -> Result<String, String> {
     let w_lit = format!("{w}u8");
+    let variant = (((rng.next_u64() % 6) as u8).wrapping_add(if is_odd_arm { 3 } else { 0 })) % 6;
+    let emit_poly_call = |prefix: &str, rng: &mut SplitMix64| -> String {
+        match variant {
+            0 => format!("ctx.{prefix}_v0({a_expr}, {b_expr}, {w_lit})"),
+            1 => format!("ctx.{prefix}_v1({a_expr}, {b_expr}, {w_lit})"),
+            2 => format!("ctx.{prefix}_v2({a_expr}, {b_expr}, {w_lit})"),
+            3 => {
+                let sbox_k = draw_safe_odd_u64(rng);
+                format!("ctx.{prefix}_v3({a_expr}, {b_expr}, {w_lit}, {sbox_k}u64)")
+            }
+            4 => {
+                let sbox_k = draw_safe_odd_u64(rng);
+                format!("ctx.{prefix}_v4({a_expr}, {b_expr}, {w_lit}, {sbox_k}u64)")
+            }
+            _ => {
+                let (ring_m, ring_inv) = draw_ring_pair(rng);
+                format!("ctx.{prefix}_v5({a_expr}, {b_expr}, {w_lit}, {ring_m}u64, {ring_inv}u64)")
+            }
+        }
+    };
     let code = match op {
-        "ADD" | "OP_ADD" => {
-            if !is_odd_arm {
-                format!("ctx.mba_add_even({a_expr}, {b_expr}, {w_lit})")
-            } else {
-                format!("ctx.mba_add_odd({a_expr}, {b_expr}, {w_lit})")
-            }
-        }
-        "SUB" | "OP_SUB" => {
-            if !is_odd_arm {
-                format!("ctx.mba_sub_even({a_expr}, {b_expr}, {w_lit})")
-            } else {
-                format!("ctx.mba_sub_odd({a_expr}, {b_expr}, {w_lit})")
-            }
-        }
+        "ADD" | "OP_ADD" => emit_poly_call("mba_add", rng),
+        "SUB" | "OP_SUB" => emit_poly_call("mba_sub", rng),
         "MUL" | "OP_MUL" => {
             let mask = rng.next_u64();
             let mask_expr = emit_const_expr(mask, rng);
             format!("ctx.mba_mul({a_expr}, {b_expr}, {mask_expr}, {w_lit})")
         }
-        "XOR" | "OP_XOR" => {
-            if !is_odd_arm {
-                format!("ctx.mba_xor_even({a_expr}, {b_expr}, {w_lit})")
-            } else {
-                format!("ctx.mba_xor_odd({a_expr}, {b_expr}, {w_lit})")
-            }
-        }
-        "AND" | "OP_AND" => {
-            if !is_odd_arm {
-                format!("ctx.mba_and_even({a_expr}, {b_expr}, {w_lit})")
-            } else {
-                format!("ctx.mba_and_odd({a_expr}, {b_expr}, {w_lit})")
-            }
-        }
-        "OR" | "OP_OR" => {
-            if !is_odd_arm {
-                format!("ctx.mba_or_even({a_expr}, {b_expr}, {w_lit})")
-            } else {
-                format!("ctx.mba_or_odd({a_expr}, {b_expr}, {w_lit})")
-            }
-        }
+        "XOR" | "OP_XOR" => emit_poly_call("mba_xor", rng),
+        "AND" | "OP_AND" => emit_poly_call("mba_and", rng),
+        "OR" | "OP_OR" => emit_poly_call("mba_or", rng),
         "SHL" | "OP_SHL" => format!("ctx.alu_shl({a_expr}, {b_expr}, {w_lit})"),
         "LSHR" | "OP_LSHR" => format!("ctx.alu_lshr({a_expr}, {b_expr}, {w_lit})"),
         "ASHR" | "OP_ASHR" => format!("ctx.alu_ashr({a_expr}, {b_expr}, {w_lit})"),
@@ -495,12 +587,44 @@ pub fn generate_rust_defense(
     seed: u64,
 ) -> Result<GeneratedRustArtifact, String> {
     let mut rng = KerckhoffsSpongeRng::new(seed);
-    let tag = format!("{:016x}", seed);
+    // V13-M1 (RFC 8439 + Zero-Seed-Leakage): Derive public symbol tag from a domain-separated
+    // ChaCha20 substream so the raw build `--seed` NEVER appears in symbol names or comments.
+    let mut tag_rng = rng.derive_stream(b"antirea-v13-public-symbol-tag");
+    let mut public_tag = tag_rng.next_u64() ^ 0x5a5a_a5a5_3c3c_c3c3;
+    if public_tag == seed {
+        public_tag ^= 0x9e37_79b9_7f4a_7c15;
+    }
+    let tag = format!("{:016x}", public_tag);
     let dispatcher_symbol = format!("antirea_dispatch_{tag}");
     let num_clusters = 16usize;
     let cluster_symbols: Vec<String> = (0..num_clusters)
         .map(|i| format!("antirea_cluster_{i}_{tag}"))
         .collect();
+
+    // V13-M3 (SiMBA/GAMBA Countermeasure): Per-build seeded 256-entry bijective S-Box & Inverse S-Box
+    let mut sbox_rng = rng.derive_stream(b"antirea-v13-bijective-sbox");
+    let mut sbox = [0u8; 256];
+    for (idx, slot) in sbox.iter_mut().enumerate() {
+        *slot = idx as u8;
+    }
+    for i in (1..256).rev() {
+        let j = (sbox_rng.next_u64() as usize) % (i + 1);
+        sbox.swap(i, j);
+    }
+    let mut inv_sbox = [0u8; 256];
+    for i in 0..256 {
+        inv_sbox[sbox[i] as usize] = i as u8;
+    }
+    let sbox_lits = sbox
+        .iter()
+        .map(|b| format!("0x{b:02x}u8"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let inv_sbox_lits = inv_sbox
+        .iter()
+        .map(|b| format!("0x{b:02x}u8"))
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let insts = &parsed.fused;
     let real_count = insts.len();
@@ -953,6 +1077,45 @@ pub fn generate_rust_defense(
                         ));
                     }
                 }
+                _ if name.starts_with("F_CHAIN_") => {
+                    // V13-M2 (Loki/VMHunt) + V13-M4 (SVP Path Splitting):
+                    // 2-ALU data-dependent chain fused into one superoperator with zero intermediate VmCtx write,
+                    // split across two active input-dependent equivalent MBA lowering paths.
+                    let rest = &name["F_CHAIN_".len()..];
+                    let (part1, part2) = rest
+                        .split_once("__")
+                        .ok_or_else(|| format!("Invalid F_CHAIN instruction name: {name}"))?;
+                    let is_rr1 = part1.starts_with("RR_");
+                    let alu1 = &part1[3..];
+                    let is_rr2 = part2.starts_with("RR_");
+                    let alu2 = &part2[3..];
+
+                    let d2 = inst.values[0] as usize;
+                    let s1 = inst.values[1] as usize;
+                    let w1 = inst.values[2] as u8;
+                    let b1_expr = if is_rr1 {
+                        let r1 = inst.values[3] as usize;
+                        format!("ctx.read_reg({r1})")
+                    } else {
+                        emit_const_expr(inst.values[3], &mut rng)
+                    };
+                    let w2 = inst.values[4] as u8;
+                    let b2_expr = if is_rr2 {
+                        let r2 = inst.values[5] as usize;
+                        format!("ctx.read_reg({r2})")
+                    } else {
+                        emit_const_expr(inst.values[5], &mut rng)
+                    };
+
+                    let alu1_a = emit_alu_expr(alu1, "a1", "b1", w1, is_odd_arm, &mut rng)?;
+                    let alu2_a = emit_alu_expr(alu2, "mid_a", "b2", w2, !is_odd_arm, &mut rng)?;
+                    let alu1_b = emit_alu_expr(alu1, "a1", "b1", w1, !is_odd_arm, &mut rng)?;
+                    let alu2_b = emit_alu_expr(alu2, "mid_b", "b2", w2, is_odd_arm, &mut rng)?;
+                    let svp_salt = draw_safe_odd_u64(&mut rng);
+                    body.push_str(&format!(
+                        "let a1 = ctx.read_reg({s1}); let b1 = {b1_expr}; let b2 = {b2_expr};\nlet res = if ctx.svp_branch(a1 ^ b1 ^ b2, {svp_salt}u64) {{\n    let mid_a = {alu1_a};\n    {alu2_a}\n}} else {{\n    let mid_b = {alu1_b};\n    {alu2_b}\n}};\nctx.write_reg({d2}, res, {op_salt}u64, {op_mode}u8);\n"
+                    ));
+                }
                 _ if name.starts_with("F_RR_") || name.starts_with("F_RI_") => {
                     let is_rr = name.starts_with("F_RR_");
                     let alu_op = &name[5..];
@@ -980,9 +1143,10 @@ pub fn generate_rust_defense(
                             ));
                         }
                         _ => {
-                            let p_salt = draw_safe_odd_u64(&mut rng);
+                            let alu_alt = emit_alu_expr(alu_op, "a", "b", w, !is_odd_arm, &mut rng)?;
+                            let svp_salt = draw_safe_odd_u64(&mut rng);
                             body.push_str(&format!(
-                                "let b = {b_expr}; let a = ctx.read_reg({s}); ctx.chaff_pulse({p_salt}u64, {op_mode}u8); let res = {alu_call}; ctx.write_reg({d}, res, {op_salt}u64, {op_mode}u8);\n"
+                                "let b = {b_expr}; let a = ctx.read_reg({s}); let res = if ctx.svp_branch(a ^ b, {svp_salt}u64) {{ {alu_call} }} else {{ {alu_alt} }}; ctx.write_reg({d}, res, {op_salt}u64, {op_mode}u8);\n"
                             ));
                         }
                     }
@@ -1199,7 +1363,7 @@ pub extern "C" fn {sym}(ctx: &mut VmCtx, masked_tok: u64, scrub_out: &mut u64) -
     let dispatch_tree_code = emit_outer_dispatch_tree(&dispatch_leaves, 0, num_clusters, 8);
 
     let runtime_lib_rs = format!(
-        r#"//! Generated Pure-Rust Counter-Exploitation Runtime (Format v12, Seed 0x{tag})
+        r#"//! Generated Pure-Rust Counter-Exploitation Runtime (Format v13, Tag 0x{tag})
 #![allow(clippy::all, non_snake_case, unused_variables, dead_code)]
 
 use core::arch::x86_64::*;
@@ -1208,6 +1372,12 @@ use core::mem::MaybeUninit;
 
 #[used]
 pub static ANTIREA_RDATA_POOL: [u64; 256] = [{rdata_pool_lits}];
+
+#[used]
+pub static ANTIREA_SBOX: [u8; 256] = [{sbox_lits}];
+
+#[used]
+pub static ANTIREA_INV_SBOX: [u8; 256] = [{inv_sbox_lits}];
 
 #[inline(always)]
 pub fn read_rdata_pool(bank: usize, idx: usize) -> u64 {{
@@ -1688,7 +1858,7 @@ impl VmCtx {{
         self.set_pair(11, val, mask as u64, 13);
     }}
 
-    #[inline(always)]
+    #[inline]
     pub fn fast_entropy(&mut self, site_salt: u64, mode: u8) -> u64 {{
         let cur_lo = self.ent_lo_val();
         let cur_hi = self.ent_hi_val();
@@ -1743,7 +1913,7 @@ impl VmCtx {{
         }}
     }}
 
-    #[inline(always)]
+    #[inline]
     pub fn re_share_header(&mut self, r: u64, mode: u8) {{
         // V11-M3: 8-way entropy-selected header subset re-sharer over rotating hot banks
         self.hdr_route ^= r & !127u64;
@@ -2240,31 +2410,112 @@ impl VmCtx {{
     }}
 
     #[inline(always)]
-    pub fn mba_add_even(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let x = black_box(a) ^ black_box(b);
-        let c = (black_box(a) & black_box(b)) << 1;
-        self.zext(x.wrapping_add(c), w)
+    pub fn sbox_u64(&self, val: u64, key: u64) -> u64 {{
+        let x = black_box(val) ^ black_box(key);
+        let b0 = unsafe {{ *ANTIREA_SBOX.get_unchecked((x & 0xff) as usize) }} as u64;
+        let b1 = unsafe {{ *ANTIREA_SBOX.get_unchecked(((x >> 8) & 0xff) as usize) }} as u64;
+        (x & !0xffffu64) | b0 | (b1 << 8)
     }}
 
     #[inline(always)]
-    pub fn mba_add_odd(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let o = black_box(a) | black_box(b);
-        let n = black_box(a) & black_box(b);
-        self.zext(o.wrapping_add(n), w)
+    pub fn inv_sbox_u64(&self, val: u64, key: u64) -> u64 {{
+        let b0 = unsafe {{ *ANTIREA_INV_SBOX.get_unchecked((val & 0xff) as usize) }} as u64;
+        let b1 = unsafe {{ *ANTIREA_INV_SBOX.get_unchecked(((val >> 8) & 0xff) as usize) }} as u64;
+        let x = (val & !0xffffu64) | b0 | (b1 << 8);
+        x ^ black_box(key)
     }}
 
     #[inline(always)]
-    pub fn mba_sub_even(&self, a: u64, b: u64, w: u8) -> u64 {{
+    pub fn sbox_rt(&self, val: u64, key: u64) -> u64 {{
+        self.inv_sbox_u64(self.sbox_u64(val, key), key)
+    }}
+
+    #[inline(always)]
+    pub fn svp_branch(&self, operand_mix: u64, salt: u64) -> bool {{
+        let h = (black_box(operand_mix) ^ self.ent_lo_val() ^ self.xmm0_val())
+            .wrapping_mul(black_box(salt) | 1);
+        ((h ^ (h >> 33)) & 1) == 0
+    }}
+
+    #[inline(always)]
+    pub fn mba_add_v0(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext((black_box(a) ^ black_box(b)).wrapping_add((black_box(a) & black_box(b)) << 1), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_add_v1(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext((black_box(a) | black_box(b)).wrapping_add(black_box(a) & black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_add_v2(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext(((black_box(a) | black_box(b)) << 1).wrapping_sub(black_box(a) ^ black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_add_v3(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let c_sbox = self.sbox_rt(black_box(a) & black_box(b), sbox_k) << 1;
+        self.zext((black_box(a) ^ black_box(b)).wrapping_add(c_sbox), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_add_v4(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let p1 = self.sbox_rt((black_box(a) & !black_box(b)).wrapping_add(black_box(b)), sbox_k);
+        self.zext(p1.wrapping_add(black_box(a) & black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_add_v5(&self, a: u64, b: u64, w: u8, ring_m: u64, ring_inv: u64) -> u64 {{
+        let ma = black_box(a).wrapping_mul(black_box(ring_m));
+        let mb = black_box(b).wrapping_mul(black_box(ring_m));
+        self.zext(ma.wrapping_add(mb).wrapping_mul(black_box(ring_inv)), w)
+    }}
+
+    #[inline]
+    pub fn mba_add_poly(&self, a: u64, b: u64, w: u8, variant: u8, sbox_k: u64, ring_m: u64, ring_inv: u64) -> u64 {{
+        match variant % 6 {{
+            0 => self.mba_add_v0(a, b, w),
+            1 => self.mba_add_v1(a, b, w),
+            2 => self.mba_add_v2(a, b, w),
+            3 => self.mba_add_v3(a, b, w, sbox_k),
+            4 => self.mba_add_v4(a, b, w, sbox_k),
+            _ => self.mba_add_v5(a, b, w, ring_m, ring_inv),
+        }}
+    }}
+
+    #[inline(always)]
+    pub fn mba_sub_v0(&self, a: u64, b: u64, w: u8) -> u64 {{
         let nb = !black_box(b);
-        let s = (black_box(a) ^ nb).wrapping_add((black_box(a) & nb) << 1);
-        self.zext(s.wrapping_add(1), w)
+        self.zext((black_box(a) ^ nb).wrapping_add((black_box(a) & nb) << 1).wrapping_add(1), w)
     }}
 
     #[inline(always)]
-    pub fn mba_sub_odd(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let d = black_box(a) ^ black_box(b);
-        let borrow = ((!black_box(a)) & black_box(b)) << 1;
-        self.zext(d.wrapping_sub(borrow), w)
+    pub fn mba_sub_v1(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext((black_box(a) ^ black_box(b)).wrapping_sub(((!black_box(a)) & black_box(b)) << 1), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_sub_v2(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext((black_box(a) & !black_box(b)).wrapping_sub((!black_box(a)) & black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_sub_v3(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let u = self.sbox_rt((black_box(a) | black_box(b)).wrapping_sub(black_box(b)), sbox_k);
+        self.zext(u.wrapping_sub((!black_box(a)) & black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_sub_v4(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let br = self.sbox_rt((!black_box(a)) & black_box(b), sbox_k) << 1;
+        self.zext((black_box(a) ^ black_box(b)).wrapping_sub(br), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_sub_v5(&self, a: u64, b: u64, w: u8, ring_m: u64, ring_inv: u64) -> u64 {{
+        let ma = black_box(a).wrapping_mul(black_box(ring_m));
+        let mb = black_box(b).wrapping_mul(black_box(ring_m));
+        self.zext(ma.wrapping_sub(mb).wrapping_mul(black_box(ring_inv)), w)
     }}
 
     #[inline(always)]
@@ -2278,45 +2529,105 @@ impl VmCtx {{
     }}
 
     #[inline(always)]
-    pub fn mba_xor_even(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let o = black_box(a) | black_box(b);
-        let n = black_box(a) & black_box(b);
-        self.zext(o.wrapping_sub(n), w)
+    pub fn mba_xor_v0(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext((black_box(a) | black_box(b)).wrapping_sub(black_box(a) & black_box(b)), w)
     }}
 
     #[inline(always)]
-    pub fn mba_xor_odd(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let s = black_box(a).wrapping_add(black_box(b));
-        let n = (black_box(a) & black_box(b)) << 1;
-        self.zext(s.wrapping_sub(n), w)
+    pub fn mba_xor_v1(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext(black_box(a).wrapping_add(black_box(b)).wrapping_sub((black_box(a) & black_box(b)) << 1), w)
     }}
 
     #[inline(always)]
-    pub fn mba_and_even(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let s = black_box(a).wrapping_add(black_box(b));
-        let o = black_box(a) | black_box(b);
-        self.zext(s.wrapping_sub(o), w)
+    pub fn mba_xor_v2(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext((black_box(a) & !black_box(b)) | ((!black_box(a)) & black_box(b)), w)
     }}
 
     #[inline(always)]
-    pub fn mba_and_odd(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let na = !black_box(a);
-        let nb = !black_box(b);
-        self.zext(!(na | nb), w)
+    pub fn mba_xor_v3(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let l = self.sbox_rt(black_box(a) & !black_box(b), sbox_k);
+        self.zext(l.wrapping_add((!black_box(a)) & black_box(b)), w)
     }}
 
     #[inline(always)]
-    pub fn mba_or_even(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let x = black_box(a) ^ black_box(b);
-        let n = black_box(a) & black_box(b);
-        self.zext(x.wrapping_add(n), w)
+    pub fn mba_xor_v4(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let inter = self.sbox_rt(black_box(a) & black_box(b), sbox_k);
+        self.zext((black_box(a) | black_box(b)).wrapping_sub(inter), w)
     }}
 
     #[inline(always)]
-    pub fn mba_or_odd(&self, a: u64, b: u64, w: u8) -> u64 {{
-        let s = black_box(a).wrapping_add(black_box(b));
-        let n = black_box(a) & black_box(b);
-        self.zext(s.wrapping_sub(n), w)
+    pub fn mba_xor_v5(&self, a: u64, b: u64, w: u8, ring_m: u64, ring_inv: u64) -> u64 {{
+        let u = (black_box(a) | black_box(b)).wrapping_mul(black_box(ring_m));
+        let n = (black_box(a) & black_box(b)).wrapping_mul(black_box(ring_m));
+        self.zext(u.wrapping_sub(n).wrapping_mul(black_box(ring_inv)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_and_v0(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext(black_box(a).wrapping_add(black_box(b)).wrapping_sub(black_box(a) | black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_and_v1(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext(!((!black_box(a)) | (!black_box(b))), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_and_v2(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext((black_box(a) | black_box(b)).wrapping_sub(black_box(a) ^ black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_and_v3(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let d = self.sbox_rt(black_box(a) & !black_box(b), sbox_k);
+        self.zext(black_box(a).wrapping_sub(d), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_and_v4(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let dm = self.sbox_rt((!black_box(a)) | (!black_box(b)), sbox_k);
+        self.zext(!dm, w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_and_v5(&self, a: u64, b: u64, w: u8, ring_m: u64, ring_inv: u64) -> u64 {{
+        let u = (black_box(a) | black_box(b)).wrapping_mul(black_box(ring_m));
+        let x = (black_box(a) ^ black_box(b)).wrapping_mul(black_box(ring_m));
+        self.zext(u.wrapping_sub(x).wrapping_mul(black_box(ring_inv)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_or_v0(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext((black_box(a) ^ black_box(b)).wrapping_add(black_box(a) & black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_or_v1(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext(black_box(a).wrapping_add(black_box(b)).wrapping_sub(black_box(a) & black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_or_v2(&self, a: u64, b: u64, w: u8) -> u64 {{
+        self.zext(!((!black_box(a)) & (!black_box(b))), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_or_v3(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let d = self.sbox_rt(black_box(a) & !black_box(b), sbox_k);
+        self.zext(d.wrapping_add(black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_or_v4(&self, a: u64, b: u64, w: u8, sbox_k: u64) -> u64 {{
+        let x = self.sbox_rt(black_box(a) ^ black_box(b), sbox_k);
+        self.zext(x.wrapping_add(black_box(a) & black_box(b)), w)
+    }}
+
+    #[inline(always)]
+    pub fn mba_or_v5(&self, a: u64, b: u64, w: u8, ring_m: u64, ring_inv: u64) -> u64 {{
+        let x = (black_box(a) ^ black_box(b)).wrapping_mul(black_box(ring_m));
+        let n = (black_box(a) & black_box(b)).wrapping_mul(black_box(ring_m));
+        self.zext(x.wrapping_add(n).wrapping_mul(black_box(ring_inv)), w)
     }}
 
     #[inline(always)]
@@ -2629,6 +2940,7 @@ crate-type = ["staticlib"]
 
 [profile.release]
 opt-level = 2
+codegen-units = 16
 debug = false
 strip = "symbols"
 panic = "abort"
@@ -2659,6 +2971,7 @@ crate-type = ["staticlib"]
 
 [profile.release]
 opt-level = 2
+codegen-units = 16
 debug = false
 strip = "symbols"
 panic = "abort"
@@ -2692,6 +3005,34 @@ mod tests {
             .parent()
             .unwrap()
             .to_path_buf()
+    }
+
+    #[test]
+    fn test_rfc8439_chacha20_block_vector_and_domain_streams() {
+        // Official RFC 8439 Section 2.3.2 Test Vector for the ChaCha20 Block Function
+        let key: [u32; 8] = [
+            0x0302_0100,
+            0x0706_0504,
+            0x0b0a_0908,
+            0x0f0e_0d0c,
+            0x1312_1110,
+            0x1716_1514,
+            0x1b1a_1918,
+            0x1f1e_1d1c,
+        ];
+        let nonce: [u32; 3] = [0x0900_0000, 0x4a00_0000, 0x0000_0000];
+        let out = chacha20_block(&key, 1, &nonce);
+        assert_eq!(out[0], 0xe4e7_f110);
+        assert_eq!(out[1], 0x1559_3bd1);
+        assert_eq!(out[2], 0x1fdd_0f50);
+        assert_eq!(out[3], 0xc471_20a3);
+        assert_eq!(out[12], 0xd19c_12b5);
+        assert_eq!(out[15], 0x4e3c_50a2);
+
+        let master = ChaCha20Csprng::new(131220261031);
+        let mut s_key = master.derive_stream(b"key_stream");
+        let mut s_tag = master.derive_stream(b"antirea-v13-public-symbol-tag");
+        assert_ne!(s_key.next_u64(), s_tag.next_u64());
     }
 
     #[test]
@@ -2765,6 +3106,20 @@ mod tests {
         assert!(art.runtime_lib_rs.contains("_mm_add_epi64"));
         assert!(art.runtime_lib_rs.contains("_mm_shuffle_epi32"));
         assert!(art.runtime_lib_rs.contains("u128"));
+
+        // Verify V13 upgrades: zero seed exposure in symbols/source, S-box tables, SVP branches, and F_CHAIN superoperators
+        let seed_hex = format!("{:016x}", 131220261031u64);
+        assert!(!art.dispatcher_symbol.contains(&seed_hex));
+        assert!(!art.runtime_lib_rs.contains(&seed_hex));
+        assert!(!art.runtime_lib_rs.contains("131220261031"));
+        assert!(art.runtime_lib_rs.contains("ANTIREA_SBOX: [u8; 256]"));
+        assert!(art.runtime_lib_rs.contains("ANTIREA_INV_SBOX: [u8; 256]"));
+        assert!(art.runtime_lib_rs.contains("pub fn svp_branch("));
+        assert!(art.runtime_lib_rs.contains("pub fn mba_add_poly("));
+        assert!(
+            parsed.fused.iter().any(|inst| inst.name.starts_with("F_CHAIN_")),
+            "Expected at least one F_CHAIN data-dependent superoperator in fused IR"
+        );
 
         let lower_rs = art.runtime_lib_rs.to_lowercase();
         for &forb in FORBIDDEN_CONSTANTS {

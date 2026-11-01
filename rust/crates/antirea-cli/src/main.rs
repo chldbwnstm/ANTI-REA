@@ -2,6 +2,20 @@ use antirea_validate::{build_and_validate_candidate, compile_multilang_rust_runt
 use std::env;
 use std::path::PathBuf;
 use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn os_entropy_seed() -> u64 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x243f_6a88_85a3_08d3);
+    let pid = process::id() as u64;
+    let stack_addr = (&nanos as *const u64 as usize) as u64;
+    let raw = nanos
+        ^ pid.rotate_left(17).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ stack_addr.rotate_right(11);
+    raw | 1
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -19,7 +33,7 @@ fn main() {
     let mut baseline = None;
     let mut previous = None;
     let mut output_dir = None;
-    let mut seed: u64 = 131220261031;
+    let mut seed: u64 = os_entropy_seed();
 
     let mut i = 2;
     while i < args.len() {

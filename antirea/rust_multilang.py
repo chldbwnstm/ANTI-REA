@@ -35,7 +35,7 @@ def ensure_rust_cli(workspace_root: Path) -> Path:
         cwd=str(workspace_root),
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=600,
     )
     if proc.returncode != 0 or not cli_path.is_file():
         raise RuntimeError(f"cargo build --release failed: {proc.stderr or proc.stdout}")
@@ -98,7 +98,7 @@ def compile_and_link_rust_multilang(
         cwd=str(workspace_root),
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=600,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"antirea-cli compile-multilang failed: {proc.stderr or proc.stdout}")
@@ -136,6 +136,7 @@ def compile_and_link_rust_multilang(
         "engine": report["engine"],
         "format_version": report["format_version"],
         "seed": seed,
+        "seed_commitment_sha256": report.get("seed_commitment_sha256", ""),
         "stage_dir": str(stage_dir),
         "blob_count": report["blob_count"],
         "dispatcher_symbols": dispatchers,
