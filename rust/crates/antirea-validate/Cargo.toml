@@ -1,0 +1,8 @@
+[package]
+name = "antirea-validate"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+antirea-ir = { path = "../antirea-ir" }
+antirea-passes = { path = "../antirea-passes" }

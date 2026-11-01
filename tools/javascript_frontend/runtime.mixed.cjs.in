@@ -1,0 +1,153 @@
+// ANTI-REA mixed-module generated scalar stack VM (format 2).
+// Injected as HOISTED function declarations with LAZY, memoized initialization.
+// This is deliberately NOT an IIFE/const assigned at the first function body:
+// JS hoists function declarations, so an ordinary module may call a selected
+// wrapper before its textual definition; a hoisted _arm_enter that builds the
+// VM on first use reaches an initialized VM for those supported pre-definition
+// calls without running any require/integrity work at module load time.
+// The decode/validate/fetch/binary/constant machinery below is copied verbatim
+// from tools/javascript_frontend/runtime.cjs.in to retain the exact format-2
+// mechanism; only the framing (factory + whole-closure entrypoints + reached
+// helper identity checks) differs. No original source, eval, Function or code
+// objects. Keys/runtime remain local. This checksum does not authenticate code.
+function _arm_factory() {
+  if (_arm_factory.enter) return _arm_factory.enter;
+  const crypto = require("node:crypto"), Buffer_ = require("node:buffer").Buffer;
+  const blob = Buffer_.from(@BLOB@, "hex");
+  const functions = @FUNCTIONS@;
+  const names = @NAMES@;
+  const getters = @GETTERS@;
+  function canonical(value) {
+    if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
+    if (value !== null && typeof value === "object")
+      return "{" + Object.keys(value).sort().map(name => JSON.stringify(name) + ":" + canonical(value[name])).join(",") + "}";
+    return JSON.stringify(value);
+  }
+  if (crypto.createHash("sha256").update(canonical(functions), "ascii").update(blob).digest("hex") !== @DIGEST@)
+    throw new Error("ANTI-REA VM program integrity check failed");
+  function validateMetadata() {
+    function integer(value, lower, upper) { return Number.isSafeInteger(value) && value >= lower && value <= upper; }
+    function exact(value, keys) {
+      return value !== null && typeof value === "object" && !Array.isArray(value)
+        && Object.keys(value).sort().join(",") === keys.sort().join(",");
+    }
+    function reject() { throw new Error("Invalid VM metadata"); }
+    if (!Array.isArray(functions) || functions.length < 1 || functions.length > 128) reject();
+    if (!Array.isArray(names) || names.length !== functions.length) reject();
+    if (!Array.isArray(getters) || getters.length !== functions.length) reject();
+    let nextOffset = 0;
+    for (const fn of functions) {
+      if (!exact(fn, ["slots", "offset", "bytes", "positions", "codec"])) reject();
+      if (!Array.isArray(fn.slots) || fn.slots.length > 1000000
+          || fn.slots.some(kind => !["parameter", "let", "const"].includes(kind))) reject();
+      if (!integer(fn.offset, 0, blob.length) || fn.offset !== nextOffset
+          || !integer(fn.bytes, 4, Math.min(0xffffffff, blob.length - nextOffset))) reject();
+      if (!Array.isArray(fn.positions) || fn.positions.length < 2
+          || fn.positions[0] !== 0 || fn.positions[fn.positions.length - 1] !== fn.bytes) reject();
+      let previous = -4;
+      for (const position of fn.positions) {
+        if (!integer(position, 0, fn.bytes) || position < previous + 4) reject();
+        previous = position;
+      }
+      const codec = fn.codec;
+      if (!exact(codec, ["key", "tokens", "multiply", "add", "mix", "rotate", "operand_multiply", "operand_add"])) reject();
+      if (!Array.isArray(codec.key) || codec.key.length !== 2
+          || codec.key.some(word => !integer(word, 0, 0xffffffff)) || !integer(codec.rotate, 0, 6)) reject();
+      for (const name of ["multiply", "add", "mix", "operand_multiply", "operand_add"])
+        if (!integer(codec[name], 0, 0xffffffff)) reject();
+      if (!(codec.multiply & codec.mix & codec.operand_multiply & 1)) reject();
+      if (!Array.isArray(codec.tokens) || codec.tokens.length !== 17
+          || codec.tokens.some(token => !integer(token, 256, 65535)) || new Set(codec.tokens).size !== 17) reject();
+      nextOffset += fn.bytes;
+    }
+    if (nextOffset !== blob.length) reject();
+  }
+  validateMetadata();
+  function readByte(fn, position) {
+    const codec = fn.codec;
+    let mixed = (Math.imul(position, codec.multiply) + codec.add) >>> 0;
+    mixed = (mixed ^ (mixed >>> 13)) >>> 0;
+    mixed = Math.imul(mixed, codec.mix) >>> 0;
+    mixed = (mixed ^ (mixed >>> 17)) >>> 0;
+    const keyByte = (codec.key[(position >>> 2) & 1] >>> (8 * (position & 3))) & 255;
+    const mask = (mixed ^ keyByte) & 255;
+    const rotation = ((position + codec.rotate) % 7) + 1;
+    let value = blob[fn.offset + position] ^ ((mixed >>> 8) & 255);
+    value = ((value >>> rotation) | (value << (8 - rotation))) & 255;
+    return (value - mask) & 255;
+  }
+  function fetch(fn, instructionPC) {
+    const positions = fn.positions;
+    if (!Number.isInteger(instructionPC) || instructionPC < 0 || instructionPC >= positions.length - 1)
+      throw new Error("Invalid VM instruction address");
+    const start = positions[instructionPC], end = positions[instructionPC + 1], codec = fn.codec;
+    const opcode = (readByte(fn, start) << 8) | readByte(fn, start + 1);
+    if (!codec.tokens.includes(opcode)) throw new Error("Invalid VM opcode");
+    let state = (Math.imul(start, codec.operand_multiply) ^ opcode ^ codec.key[0] ^ codec.key[1] ^ codec.operand_add) >>> 0;
+    const bytes = Buffer_.alloc(end - start - 2);
+    for (let position = start + 2; position < end; ++position) {
+      const mask = (state ^ (state >>> 11) ^ (state >>> 23)) & 255;
+      const plain = readByte(fn, position) ^ mask;
+      bytes[position - start - 2] = plain;
+      const rotated = ((state << 5) | (state >>> 27)) >>> 0;
+      state = (Math.imul(rotated, codec.operand_multiply) + plain + codec.operand_add) >>> 0;
+    }
+    let operands;
+    try { operands = JSON.parse(bytes.toString("utf8")); }
+    finally { bytes.fill(0); }
+    if (!Array.isArray(operands)) throw new Error("Invalid VM operand record");
+    // This array describes only this instruction. Do not retain it in a cache.
+    return [opcode, ...operands];
+  }
+  const unset = Symbol("uninitialized lexical binding");
+  const builtins = {Number, BigInt, Boolean};
+  for (const name of ["abs", "min", "max", "floor", "ceil", "trunc", "round", "sign", "imul", "fround"]) builtins["Math." + name] = Math[name];
+  for (const name of ["isFinite", "isNaN", "isInteger", "isSafeInteger"]) builtins["Number." + name] = Number[name];
+  builtins["BigInt.asIntN"] = BigInt.asIntN; builtins["BigInt.asUintN"] = BigInt.asUintN;
+  function constant(value) {
+    switch (value[0]) {
+      case "number": return Buffer_.from(value[1], "hex").readDoubleBE();
+      case "bigint": return BigInt(value[1]);
+      case "boolean": return value[1];
+      case "undefined": return undefined;
+      case "null": return null;
+      default: throw new Error("Invalid VM constant");
+    }
+  }
+  function binary(operator, left, right) {
+    switch (operator) {
+      case "+": return left + right; case "-": return left - right; case "*": return left * right;
+      case "/": return left / right; case "%": return left % right; case "**": return left ** right;
+      case "<<": return left << right; case ">>": return left >> right; case ">>>": return left >>> right;
+      case "&": return left & right; case "|": return left | right; case "^": return left ^ right;
+      case "==": return left == right; case "!=": return left != right;
+      case "===": return left === right; case "!==": return left !== right;
+      case "<": return left < right; case "<=": return left <= right; case ">": return left > right; case ">=": return left >= right;
+      default: throw new Error("Invalid VM binary operation");
+    }
+  }
+  // Capture the current module bindings of every virtualized name once. A reached
+  // internal helper call verifies the live binding still equals this wrapper, so
+  // an ordinary caller that rebinds a selected/helper name is rejected on the
+  // reached call rather than silently served the frozen VM body. Static rebinding
+  // of these names anywhere in the module source is already rejected at build.
+  const registered = getters.map(getter => getter());
+  // Shared slot helpers (reported as shared, not independently obfuscated).
+  function loadSlot(fn, slots, slot) { if (slots[slot] === unset) throw new ReferenceError("Lexical binding before initialization"); return slots[slot]; }
+  function assignSlot(fn, slots, slot, value) {
+    loadSlot(fn, slots, slot); if (fn.slots[slot] === "const") throw new TypeError("Assignment to constant variable");
+    slots[slot] = value;
+  }
+  // Per-function control-flow-flattened engines, the indirect dispatch table and
+  // the bounded id-to-engine forwarding seam (no opcode dispatch) are generated.
+  // Each engine's call handler keeps the reached-helper identity guard.
+@ENGINES@
+  function enter(identifier, args) {
+    if (args.some(value => !["number", "bigint", "boolean"].includes(typeof value)))
+      throw new TypeError("VM public inputs must be primitive Number, BigInt or boolean");
+    return invoke(identifier, args);
+  }
+  _arm_factory.enter = enter;
+  return enter;
+}
+function _arm_enter(_arm_identifier, _arm_arguments) { return _arm_factory()(_arm_identifier, _arm_arguments); }

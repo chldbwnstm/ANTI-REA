@@ -4,16 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "anti-rea"
-version = "0.1.0"
-description = "Local Kagura protection and mandatory REA recovery evaluation"
+version = "0.2.0"
+description = "Pure-Rust and multi-language binary protection engine against AI-assisted reverse engineering"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 dependencies = []
 
 [project.scripts]
-anti-rea = "antirea.cli:main"
+anti-rea = "antirea.defense_mcp:main"
 anti-rea-defense = "antirea.defense_mcp:main"
 
 [tool.setuptools.packages.find]
 include = ["antirea*"]
+exclude = ["antirea.observability*"]
 

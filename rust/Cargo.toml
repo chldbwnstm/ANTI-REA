@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/antirea-ir",
+    "crates/antirea-passes",
+    "crates/antirea-validate",
+    "crates/antirea-cli",
+]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+license = "Proprietary"

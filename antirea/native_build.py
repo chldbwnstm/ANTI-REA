@@ -1662,10 +1662,18 @@ def main(argv=None) -> int:
     build.add_argument("--output-dir", type=Path, required=True)
     build.add_argument("--workspace", type=Path, default=Path.cwd())
     build.add_argument("--seed", type=int, default=1729)
+    build.add_argument("--rust-engine", action="store_true")
     args = parser.parse_args(argv)
     try:
-        result = inspect_project(args.project, workspace_root=args.workspace) if args.action == "inspect" else build_project(
-            args.project, args.output_dir, workspace_root=args.workspace, seed=args.seed)
+        if args.action == "inspect":
+            result = inspect_project(args.project, workspace_root=args.workspace)
+        else:
+            result = build_project(args.project, args.output_dir, workspace_root=args.workspace, seed=args.seed)
+            if args.rust_engine and result.get("status") == "artifact_created_unvalidated":
+                from antirea.rust_multilang import compile_and_link_rust_multilang
+                result["rust_engine"] = compile_and_link_rust_multilang(
+                    args.output_dir, workspace_root=args.workspace, seed=args.seed
+                )
     except (NativeBuildError, OSError) as exc:
         result = {"status": "rejected", "error": str(exc)}
     print(json.dumps(result, indent=2, ensure_ascii=False))

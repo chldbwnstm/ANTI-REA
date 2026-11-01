@@ -13,10 +13,43 @@ root.md
 dependency.md
 docs/defense-automation-prompt.md
 docs/defense-loop.md
+docs/ssh-runbook.md
 docs/first-result.md
 docs/attacker-handoff.txt
+docs/superpowers/
+docs/observability.md
 
-# Python / environment / local secrets
+# Local internal evaluation harness (kept locally, excluded from public repo)
+antirea/observability/
+antirea/attack.py
+antirea/rea.py
+antirea/bridge.py
+antirea/cli.py
+antirea/__main__.py
+antirea/defense_loop.py
+antirea/exchange.py
+antirea/sync_publish.py
+scripts/Start-Observability.ps1
+scripts/Stop-Observability.ps1
+scripts/attack_existing.py
+scripts/bootstrap_rea.ps1
+scripts/defense_precheck.py
+scripts/exchange_watch.py
+scripts/verify_run.py
+tools/attacker_observer/
+tests/test_observability_*.py
+tests/test_attack_existing.py
+tests/test_bridge_compute.py
+tests/test_cancellation.py
+tests/test_defense_loop.py
+tests/test_exchange.py
+tests/test_pipeline.py
+tests/test_public_context.py
+tests/test_rea.py
+tests/test_scoped_pipeline.py
+
+# Python / Rust / environment / local secrets
+rust/target/
 __pycache__/
 *.py[cod]
 *.egg-info/

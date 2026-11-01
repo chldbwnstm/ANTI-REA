@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
   <title id="title">ANTI-REA Cosmic Defense Roadmap</title>
-  <desc id="desc">Dynamic cosmic flight roadmap showing Phase 1 to Phase 7 defense progression against autonomous reverse engineering.</desc>
+  <desc id="desc">Defense roadmap: Phases 1 through 3 completed; Phase 4, dynamic protection hardening, active; Phases 5 through 7 upcoming.</desc>
   <defs>
     <!-- Deep Space Background Gradient -->
     <linearGradient id="space-bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -65,8 +65,8 @@
       50% { transform: scaleX(1.35) scaleY(0.85); opacity: 0.75; }
     }
     @keyframes ship-hover {
-      0%, 100% { transform: translate(315px, 214px) rotate(8deg); }
-      50% { transform: translate(315px, 206px) rotate(6deg); }
+      0%, 100% { transform: translate(545px, 214px) rotate(-8deg); }
+      50% { transform: translate(545px, 206px) rotate(-6deg); }
     }
     @keyframes pulse-node {
       0% { r: 10px; opacity: 0.8; }
@@ -138,7 +138,7 @@
     <rect x="910" y="34" width="240" height="54" rx="12" fill="#111c2a" stroke="#1e3448"/>
     <text x="928" y="55" fill="#8298aa" font-size="11" font-weight="600" letter-spacing="1">CURRENT STATUS</text>
     <circle cx="932" cy="73" r="4" fill="#38bdf8"/>
-    <text x="944" y="77" fill="#bae6fd" font-size="14" font-weight="700">Phase 2 : Active Hardening</text>
+    <text x="944" y="77" fill="#bae6fd" font-size="14" font-weight="700">Phase 4 : Dynamic Protection</text>
   </g>
 
   <!-- ==================== ORBITAL TRAJECTORY ==================== -->
@@ -146,22 +146,22 @@
   <path d="M 90 220 C 175 190, 175 205, 260 205 C 345 205, 345 225, 430 225 C 515 225, 515 205, 600 205 C 685 205, 685 225, 770 225 C 855 225, 855 205, 940 205 C 1025 205, 1025 220, 1110 220"
         fill="none" stroke="#223249" stroke-width="3" stroke-dasharray="6 6"/>
 
-  <!-- Completed Trajectory (Phase 1 to Phase 2) -->
-  <path d="M 90 220 C 175 190, 175 205, 260 205"
+  <!-- Completed Trajectory (Phase 1 to Phase 3) -->
+  <path d="M 90 220 C 175 190, 175 205, 260 205 C 345 205, 345 225, 430 225"
         fill="none" stroke="#4bbd9c" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
 
-  <!-- Active Neon Thrust Stream (Phase 2 to Phase 3) -->
-  <path d="M 260 205 C 345 205, 345 225, 430 225"
+  <!-- Active Neon Thrust Stream (Phase 3 to Phase 4) -->
+  <path d="M 430 225 C 515 225, 515 205, 600 205"
         fill="none" stroke="url(#active-orbit-grad)" stroke-width="4" stroke-linecap="round"
         stroke-dasharray="12 6" style="animation: orbit-flow 1.5s linear infinite;"/>
 
-  <!-- Pulse Aura on Phase 2 Active Node -->
-  <circle cx="260" cy="205" r="10" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.85">
+  <!-- Pulse Aura on Phase 4 Active Node -->
+  <circle cx="600" cy="205" r="10" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.85">
     <animate attributeName="r" values="8;22;8" dur="2.4s" repeatCount="indefinite"/>
     <animate attributeName="opacity" values="0.9;0;0.9" dur="2.4s" repeatCount="indefinite"/>
   </circle>
 
-  <!-- ==================== DYNAMIC SPACESHIP (Cruising to Phase 3) ==================== -->
+  <!-- ==================== DYNAMIC SPACESHIP (Cruising to Phase 4) ==================== -->
   <g class="hover-flight">
     <!-- Thruster Flame (Jet Plasma) -->
     <g transform="translate(-16, 0)" class="thruster-jet">
@@ -199,41 +199,42 @@
       <text x="0" y="320" fill="#6ee7b7" font-size="10" font-weight="700">✓ COMPLETED</text>
     </g>
 
-    <!-- ========== PHASE 2 (ACTIVE NOW) ========== -->
+    <!-- ========== PHASE 2 (COMPLETED) ========== -->
     <g transform="translate(260, 0)">
-      <circle cx="0" cy="205" r="9" fill="#0e2338" stroke="#38bdf8" stroke-width="3"/>
-      <circle cx="0" cy="205" r="4" fill="#7dd3fc"/>
+      <circle cx="0" cy="205" r="9" fill="#0d2820" stroke="#4bbd9c" stroke-width="2.5"/>
+      <circle cx="0" cy="205" r="4" fill="#4bbd9c"/>
 
-      <text x="0" y="244" fill="#38bdf8" font-size="12" font-weight="800" letter-spacing="1">PHASE 2</text>
+      <text x="0" y="244" fill="#4bbd9c" font-size="12" font-weight="800" letter-spacing="1">PHASE 2</text>
       <text x="0" y="264" fill="#f1f5f9" font-size="13" font-weight="700">정적 보호 강화</text>
       <text x="0" y="282" fill="#94a3b8" font-size="11">Deep Static Hardening</text>
       <!-- Status Badge -->
-      <rect x="-42" y="296" width="84" height="20" rx="5" fill="#0c2e4e" stroke="#1d5c8e"/>
-      <text x="0" y="310" fill="#38bdf8" font-size="10" font-weight="800">ACTIVE</text>
+      <rect x="-48" y="296" width="96" height="20" rx="5" fill="#142c27" stroke="#25584b"/>
+      <text x="0" y="310" fill="#6ee7b7" font-size="10" font-weight="700">✓ COMPLETED</text>
     </g>
 
-    <!-- ========== PHASE 3 (NEXT MISSION) ========== -->
+    <!-- ========== PHASE 3 (COMPLETED) ========== -->
     <g transform="translate(430, 0)">
-      <circle cx="0" cy="225" r="8" fill="#1f1d38" stroke="#a855f7" stroke-width="2.5"/>
-      <circle cx="0" cy="225" r="3.5" fill="#c084fc"/>
+      <circle cx="0" cy="225" r="9" fill="#0d2820" stroke="#4bbd9c" stroke-width="2.5"/>
+      <circle cx="0" cy="225" r="4" fill="#4bbd9c"/>
 
-      <text x="0" y="259" fill="#c084fc" font-size="12" font-weight="800" letter-spacing="1">PHASE 3</text>
+      <text x="0" y="259" fill="#4bbd9c" font-size="12" font-weight="800" letter-spacing="1">PHASE 3</text>
       <text x="0" y="279" fill="#f1f5f9" font-size="13" font-weight="700">공격 테스터 확장</text>
       <text x="0" y="297" fill="#94a3b8" font-size="11">Scaling Attack Testers</text>
-      <!-- Subtext description -->
-      <rect x="-42" y="311" width="84" height="20" rx="5" fill="#241738" stroke="#482772"/>
-      <text x="0" y="325" fill="#d8b4fe" font-size="10" font-weight="700">NEXT</text>
+      <!-- Status Badge -->
+      <rect x="-48" y="311" width="96" height="20" rx="5" fill="#142c27" stroke="#25584b"/>
+      <text x="0" y="325" fill="#6ee7b7" font-size="10" font-weight="700">✓ COMPLETED</text>
     </g>
 
-    <!-- ========== PHASE 4 ========== -->
+    <!-- ========== PHASE 4 (ACTIVE NOW) ========== -->
     <g transform="translate(600, 0)">
-      <circle cx="0" cy="205" r="8" fill="#161e2e" stroke="#475569" stroke-width="2" stroke-dasharray="3 3"/>
-      <circle cx="0" cy="205" r="3" fill="#64748b"/>
+      <circle cx="0" cy="205" r="9" fill="#0e2338" stroke="#38bdf8" stroke-width="3"/>
+      <circle cx="0" cy="205" r="4" fill="#7dd3fc"/>
 
-      <text x="0" y="244" fill="#94a3b8" font-size="12" font-weight="700" letter-spacing="1">PHASE 4</text>
-      <text x="0" y="272" fill="#cbd5e1" font-size="18" font-weight="800">?</text>
-      <rect x="-45" y="296" width="90" height="20" rx="5" fill="#1e293b" stroke="#334155"/>
-      <text x="0" y="310" fill="#64748b" font-size="10" font-weight="600">CLASSIFIED</text>
+      <text x="0" y="244" fill="#38bdf8" font-size="12" font-weight="800" letter-spacing="1">PHASE 4</text>
+      <text x="0" y="264" fill="#f1f5f9" font-size="13" font-weight="700">동적 보호 강화</text>
+      <text x="0" y="282" fill="#94a3b8" font-size="11">Dynamic Protection Hardening</text>
+      <rect x="-42" y="296" width="84" height="20" rx="5" fill="#0c2e4e" stroke="#1d5c8e"/>
+      <text x="0" y="310" fill="#38bdf8" font-size="10" font-weight="800">ACTIVE</text>
     </g>
 
     <!-- ========== PHASE 5 ========== -->

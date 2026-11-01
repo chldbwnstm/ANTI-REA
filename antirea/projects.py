@@ -468,6 +468,18 @@ class ProjectService:
             _create_json(directory / "result.json", result)
             return result
 
+    def build_rust_engine(self, plan_id, *, seed=90820261031, replace_protected_dll=False):
+        """Compile and link the Pure-Rust VM runtime (`antirea-rust-v8`) for a completed native/lowered build."""
+        from .rust_multilang import compile_and_link_rust_multilang
+        directory = self._directory(plan_id)
+        with _job_lock(directory):
+            return compile_and_link_rust_multilang(
+                directory / "build",
+                workspace_root=self.root,
+                seed=seed,
+                replace_protected_dll=replace_protected_dll,
+            )
+
     def bindings(self, contract_path):
         path = self._owned(contract_path)
         raw = _read(path, MAX_JSON_BYTES)

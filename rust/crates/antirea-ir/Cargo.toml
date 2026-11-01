@@ -1,0 +1,4 @@
+[package]
+name = "antirea-ir"
+version.workspace = true
+edition.workspace = true

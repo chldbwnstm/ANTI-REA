@@ -6,11 +6,12 @@
 
 **¿Tienes una función clave que quieres proteger? Evita que la analicen o clonen hasta el nivel binario.**
 
-[![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_2_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
+[![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_4_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
+[![Rust Engine](https://img.shields.io/badge/Rust_Engine-1.75%2B_MSVC-dea584?style=flat-square&logo=rust&logoColor=white)](#supported-engines)
 [![Languages](https://img.shields.io/badge/Languages-11_Supported-007acc?style=flat-square)](#supported-programming-languages)
 [![MCP + CLI](https://img.shields.io/badge/MCP-stdio_%2B_CLI-5c4ee5?style=flat-square)](#quick-start)
 [![Python requirements](https://img.shields.io/badge/Python-3.11+-3776ab?style=flat-square&logo=python&logoColor=white)](#quick-start)
-[![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#supported-engines)
+[![Engines](https://img.shields.io/badge/Engines-ANTI--REA_Rust_Engine_%7C_VMP_%7C_Themida_%7C_CV-cb3837?style=flat-square)](#supported-engines)
 [![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](../../LICENSE)
 
 Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agent inspect a binary when you ask *"Understand how this feature works in that app and build a copy for my project."*
@@ -36,8 +37,8 @@ ANTI-REA supports core logic virtualization and hardening across a wide spectrum
 
 | Language | Environment / Runtime | Protection Mechanism | Deployment Form |
 |:---|:---|:---|:---|
-| **C / C++** | Clang / MSVC / LLVM | Native Polymorphic Register VM | Standalone Binary & Native DLL |
-| **Rust** | `rustc` / LLVM | Native Polymorphic Register VM | C-ABI & Native Core Library |
+| **C / C++** | Clang / MSVC / LLVM | Pure-Rust Native Polymorphic VM (`antirea-rust`) & LLVM Pipeline | Standalone Binary & Native DLL |
+| **Rust** | `rustc` / Cargo / LLVM | Pure-Rust Native Polymorphic VM (`antirea-rust`) & LLVM Pipeline | C-ABI & Native Core Library |
 | **Go** | Go 1.20+ (Typed Native) | Native VM + Facade Integration | Package Core Separation & Binary Link |
 | **Swift** | Swift 5.x+ (LLVM Native) | Swift Native VM + App Integration | Native App Core & Dynamic Library |
 | **C# (.NET)** | .NET 8 / 9 (CLR / IL) | IL Lowering → Native VM | Managed App + Protected Native Core (P/Invoke) |
@@ -57,9 +58,9 @@ ANTI-REA supports core logic virtualization and hardening across a wide spectrum
 ![ANTI-REA Cosmic Defense Roadmap](../assets/defense-roadmap.svg)
 
 - **Phase 1 · Focus on Static Binary Protection [COMPLETED]:** Protects compiled native binaries against static decompilation, Ghidra analysis, and direct formula recovery via control-flow virtualization and layered binary hardening.
-- **Phase 2 · Deep Static Hardening [ACTIVE]:** Extends static resilience by camouflaging handler boundaries, scrambling symbol relations, and concealing dispatcher internals.
-- **Phase 3 · Scaling Automated Attack Testers [NEXT]:** Continuously scales up autonomous attack agent instances, pitting new defense iterations against live automated testers every day to evolve defenses automatically.
-- **Phase 4 · ? [Classified]**
+- **Phase 2 · Deep Static Hardening [COMPLETED]:** Extends static resilience by camouflaging handler boundaries, scrambling symbol relations, and concealing dispatcher internals.
+- **Phase 3 · Scaling Automated Attack Testers [COMPLETED]:** Continuously scales up autonomous attack agent instances, pitting new defense iterations against live automated testers every day to evolve defenses automatically.
+- **Phase 4 · Dynamic Protection Hardening & Pure-Rust Engine Evolution [ACTIVE]**
 - **Phase 5 · ? [Classified]**
 - **Phase 6 · ? [Classified]**
 - **Phase 7 · ? [The Frontier]**
@@ -90,6 +91,8 @@ Crea primero un plan de protección con VMProtect para app.exe, muéstramelo y e
 ### 3. Uso directo desde la terminal (`Use the terminal`)
 
 ```powershell
+cargo build --release --manifest-path rust/Cargo.toml
+.\rust\target\release\antirea-cli.exe build --workspace . --input-build <ir_dir> --baseline <baseline.exe> --output-dir <out_dir> --seed 90720261031
 .\.venv\Scripts\python.exe -m antirea.defense_mcp --config .runs/protectors.local.json providers
 .\.venv\Scripts\python.exe -m antirea.defense_mcp --config .runs/protectors.local.json doctor
 ```
@@ -103,6 +106,14 @@ Crea primero un plan de protección con VMProtect para app.exe, muéstramelo y e
 | Iteration | Protection | REA Outcome |
 |---|---|---|
 
+
+### Kerckhoffs's Principle (Open-Source White-Box Defense · ntirea-rust-v12)
+Even though ANTI-REA is open-source (
+ust/crates/antirea-passes/src/lib.rs is fully public to attackers and AI agents), **Kerckhoffs's Principle** guarantees that the compiled binary cannot be inverted without the secret build --seed:
+- **One-Way 512-Bit Cryptographic Sponge CSPRNG (V12-M1, KerckhoffsSpongeRng):** Replaces reversible PRNGs (SplitMix64) with a non-invertible ChaCha20/BLAKE3-style ARX sponge so exposed constants cannot be inverted to recover the build seed or sibling keys.
+- **Per-Build Polymorphic VmCtx Layout Shuffling (V12-M2):** Fisher-Yates shuffles #[repr(C)] VmCtx struct fields, padding arrays (pad_lo, pad_hi), and bijective header/arena permutations (hdr_perm_mul, rena_perm_mul) on every build.
+- **Polymorphic Opcode Lowering (V12-M3) & Single-Call Inlined Transcript Coupling (V12-M4):** Varies operand evaluation order, self-canceling MBA identities, and chaff interleaving per instruction arm, and inlines entry-gate derivation + 4-round Feistel return unsealing into @antirea_dispatch_<tag> coupled via inline %vm.st in @antirea_score.
+
 ---
 
 ## Motores compatibles
@@ -115,7 +126,7 @@ Usa VMProtect (o Themida / Code Virtualizer) manteniendo al menos el 80 % de la 
 
 | Engine | Connection | Status |
 |---|---|---|
-| **ANTI-REA Engine** | C++/LLVM defense pipeline | Active VM protection, automated verification & daily hardening (Windows x86-64) |
+| **ANTI-REA Engine** | Pure-Rust Workspace (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`) & LLVM VM Pipeline | Pure-Rust `antirea-rust-v12` engine (tableless 16-cluster superinstruction VM, split `u128`+SSE2 `XMM` state, dynamic terminal tokens, 4-gate + attacker usability verification) |
 | **Themida** | Defense MCP/CLI (`.tmd`/`.tm`) | Windows native x86/x64 PE adapter implemented |
 | **VMProtect** | Defense MCP/CLI (`.vmp`) | Windows native x86/x64 PE adapter implemented |
 | **Code Virtualizer** | Defense MCP/CLI (`.cv`) | Windows native x86/x64 PE adapter implemented |
@@ -125,6 +136,7 @@ Usa VMProtect (o Themida / Code Virtualizer) manteniendo al menos el 80 % de la 
 ## Desarrollo y pruebas
 
 ```powershell
+cargo test --manifest-path rust/Cargo.toml
 python -m unittest discover -s tests -v
 ```
 
