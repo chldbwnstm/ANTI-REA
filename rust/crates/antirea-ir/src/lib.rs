@@ -962,24 +962,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires local .runs run artifacts (gitignored); the deterministic_vm_corpus tests cover the fresh-clone path"]
     fn test_parse_and_eval_protected_ir() {
         let root = repo_root();
-        // The `.runs/` artifacts below are local run output (never committed),
-        // so a fresh clone would panic here. Skip instead; the embedded
-        // `deterministic_vm_corpus` mod covers the parse/eval pipeline on
-        // fresh clones.
-        for name in ["core.after.ll", "core.prevm.ll", "core.before.ll"] {
-            let path = root.join(format!(
-                ".runs/20261018T053820Z-fc74cc/defender/protected/{name}"
-            ));
-            if !path.exists() {
-                eprintln!(
-                    "[skip] run artifact not present: {} — deterministic corpus tests cover the fresh-clone path",
-                    path.display()
-                );
-                return;
-            }
-        }
         let table = default_opcode_table();
         assert_eq!(table.get(&0x00).map(|s| s.as_str()), Some("OP_PUSH_IMM8"));
         assert_eq!(table.get(&0x44).map(|s| s.as_str()), Some("OP_RET"));
@@ -1232,8 +1217,10 @@ mod tests {
         // process via std::process::Command and judges by exit status:
         // ordinary rejection exits 0, a panic/abort exits non-zero.
         // The batch of stress inputs is passed through one environment
-        // variable (hex) and the child walks all of it, printing the hex of
-        // any offending case before exiting non-zero. No external crates.
+        // variable (hex) gated by a separate ANTIREA_STRESS_CHILD=1 flag, so
+        // a stray batch variable can never make a plain test process exit;
+        // the child walks the whole batch, printing the hex of any offending
+        // case before exiting non-zero. No external crates.
         // ------------------------------------------------------------------
         mod differential_stress {
             use super::*;
@@ -1297,6 +1284,9 @@ mod tests {
             }
 
             fn hex_decode(text: &str) -> Vec<u8> {
+                if text.len() % 2 != 0 {
+                    panic!("odd-length hex batch");
+                }
                 text.as_bytes()
                     .chunks_exact(2)
                     .map(|pair| {
@@ -1336,6 +1326,7 @@ mod tests {
                         // The child's harness would otherwise capture (and
                         // discard) the worker's STRESS-* lines on success.
                         .arg("--nocapture")
+                        .env("ANTIREA_STRESS_CHILD", "1")
                         .env("ANTIREA_STRESS_BATCH", batch_envelope(batch))
                         .output()
                         .expect("spawn child test binary");
@@ -1376,14 +1367,10 @@ mod tests {
                     }
                 }
                 assert_eq!(walked, cases.len(), "every case must reach a child walk");
-                if panic_cases.is_empty() {
-                    eprintln!(
-                        "stress corpus clean: {walked} cases, every parse returned without panic/abort"
-                    );
-                } else {
-                    // Real parser panics stay production code untouched (repo
-                    // constraint); record each case hex so the upstream author
-                    // can reproduce, and report instead of failing the suite.
+                if !panic_cases.is_empty() {
+                    // Report the offending case hexes before failing so they
+                    // stay visible in the test output; production code stays
+                    // untouched (repo constraint) and upstream can reproduce.
                     eprintln!(
                         "[stress-skip] {} panicking case(s) recorded for upstream report:",
                         panic_cases.len()
@@ -1392,18 +1379,31 @@ mod tests {
                         eprintln!("[stress-skip] STRESS-PANIC {case}");
                     }
                 }
+                assert!(
+                    panic_cases.is_empty(),
+                    "parser panicked on {} stress cases: {:?}",
+                    panic_cases.len(),
+                    panic_cases
+                );
+                eprintln!(
+                    "stress corpus clean: {walked} cases, every parse returned without panic/abort"
+                );
             }
 
-            /// Child worker: runs only under `--exact` with the batch in the
-            /// environment; a plain `cargo test` run hits the early return.
+            /// Child worker: runs only under `--exact` with the child flag
+            /// and the batch in the environment; a plain `cargo test` run —
+            /// even one where a stray ANTIREA_STRESS_BATCH leaks into the
+            /// environment — hits the early return without exiting.
             /// Err/Ok are both ordinary outcomes; a panic is caught, printed
             /// with the case hex, and surfaces as a non-zero exit so the
             /// parent can tell it apart from ordinary rejection.
             #[test]
             fn stress_child_worker() {
-                let Ok(batch) = std::env::var("ANTIREA_STRESS_BATCH") else {
+                if std::env::var("ANTIREA_STRESS_CHILD").as_deref() != Ok("1") {
                     return;
-                };
+                }
+                let batch = std::env::var("ANTIREA_STRESS_BATCH")
+                    .expect("parent sets the batch alongside the child flag");
                 let table = default_opcode_table();
                 let mut rejected = 0usize;
                 let mut accepted = 0usize;
