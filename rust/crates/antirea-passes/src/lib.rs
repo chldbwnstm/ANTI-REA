@@ -615,16 +615,6 @@ pub fn generate_rust_defense(
     for i in 0..256 {
         inv_sbox[sbox[i] as usize] = i as u8;
     }
-    let sbox_lits = sbox
-        .iter()
-        .map(|b| format!("0x{b:02x}u8"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let inv_sbox_lits = inv_sbox
-        .iter()
-        .map(|b| format!("0x{b:02x}u8"))
-        .collect::<Vec<_>>()
-        .join(", ");
 
     let insts = &parsed.fused;
     let real_count = insts.len();
@@ -671,6 +661,55 @@ pub fn generate_rust_defense(
         ^ rdata_at(2, 7).rotate_right(13)
         ^ rdata_at(3, 19);
 
+    // V14-M1 + V14.2-M1 (Pushan/Syntia/DCA Countermeasure): Encrypted-at-Rest .rdata S-Box Vault & Branchless Continuous Prologue Vault Ratchet
+    let vault_steps = 515usize + (((rng.next_u64() as usize) & 7usize) * 2usize);
+    let (vault_init, vault_step_mul, vault_key, vault_tk_mask) = loop {
+        let v_init = draw_safe_odd_u64(&mut rng);
+        let v_mul = draw_safe_odd_u64(&mut rng);
+        let mut acc = v_init;
+        let mut tk_mask = 0u64;
+        for step in 0..vault_steps {
+            let vp = rdata_at(step & 3, (step >> 2) & 31);
+            acc = acc
+                .rotate_left(13)
+                .wrapping_mul(v_mul | 1)
+                ^ vp
+                ^ (step as u64).wrapping_mul(v_init);
+            let tk_step_delta = acc.rotate_left(((step as u32) & 31) + 1) ^ vp.rotate_right(11);
+            tk_mask ^= tk_step_delta;
+        }
+        if is_safe_literal(acc) && is_safe_literal(tk_mask) && acc != seed && tk_mask != seed {
+            break (v_init, v_mul, acc, tk_mask);
+        }
+    };
+    let sbox_vault_salt = draw_safe_odd_u64(&mut rng);
+    let inv_sbox_vault_salt = draw_safe_odd_u64(&mut rng);
+    let hdr_c_mul = draw_safe_odd_u64(&mut rng);
+    let vk_sbox_mask = |idx: usize, salt: u64| -> u8 {
+        let w = vault_key
+            .rotate_left(((idx as u32).wrapping_mul(7) + 3) & 63)
+            .wrapping_add((idx as u64).wrapping_mul(salt | 1));
+        ((w ^ (w >> 19) ^ (w >> 41)) & 0xff) as u8
+    };
+    let sbox_lits = sbox
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| {
+            let enc = b ^ vk_sbox_mask(i, sbox_vault_salt);
+            format!("0x{enc:02x}u8")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let inv_sbox_lits = inv_sbox
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| {
+            let enc = b ^ vk_sbox_mask(i, inv_sbox_vault_salt);
+            format!("0x{enc:02x}u8")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
     // V12-M2: Kerckhoffs per-build polymorphic VmCtx struct layout shuffling & bijective bank permutations
     let hdr_perm_mul = loop {
         let m = (((rng.next_u64() as usize) & 30usize) | 1usize) & 31usize;
@@ -695,7 +734,7 @@ pub fn generate_rust_defense(
         "    pub frm_b: [u8; 1024],".to_string(),
         "    pub arg_a: [u64; 8],".to_string(),
         "    pub arg_b: [u64; 8],".to_string(),
-        "    pub hdr: [u64; 64],".to_string(),
+        "    pub hdr: [u64; 96],".to_string(),
         format!("    pub pad_lo: [u64; {pad_lo_len}],"),
         format!("    pub pad_hi: [u64; {pad_hi_len}],"),
         "    pub hdr_route: u64,".to_string(),
@@ -1312,13 +1351,42 @@ pub fn generate_rust_defense(
         let out_salt = draw_safe_odd_u64(&mut rng);
         let def_mode = (c & 7) as u8;
         let max_steps = 3usize + ((c * 5 + 1) & 3usize);
+        let (entry_unwrap_expr, exit_wrap_expr, halt_wrap_expr, caller_wrap_expr, caller_unwrap_expr) = match c & 3 {
+            0 => (
+                format!("black_box(masked_tok).wrapping_mul(black_box({in_inv}u64)).wrapping_sub(m_in)"),
+                format!("tok.wrapping_add(xm).wrapping_mul(black_box({out_mul}u64))"),
+                format!("ctx.halted_token_val().wrapping_add(xm).wrapping_mul(black_box({out_mul}u64))"),
+                format!("tok.wrapping_add(m_in).wrapping_mul(black_box({in_mul}u64))"),
+                format!("r.wrapping_mul(black_box({out_inv}u64)).wrapping_sub(m_out)"),
+            ),
+            1 => (
+                format!("(black_box(masked_tok).wrapping_sub(m_in.rotate_left(17)).wrapping_mul(black_box({in_inv}u64))) ^ m_in"),
+                format!("(tok ^ xm).wrapping_mul(black_box({out_mul}u64)).wrapping_sub(xm.rotate_left(13))"),
+                format!("(ctx.halted_token_val() ^ xm).wrapping_mul(black_box({out_mul}u64)).wrapping_sub(xm.rotate_left(13))"),
+                format!("(tok ^ m_in).wrapping_mul(black_box({in_mul}u64)).wrapping_add(m_in.rotate_left(17))"),
+                format!("(r.wrapping_add(m_out.rotate_left(13)).wrapping_mul(black_box({out_inv}u64))) ^ m_out"),
+            ),
+            2 => (
+                format!("(black_box(masked_tok) ^ m_in.rotate_right(11)).wrapping_mul(black_box({in_inv}u64)).wrapping_add(m_in)"),
+                format!("tok.wrapping_sub(xm).wrapping_mul(black_box({out_mul}u64)) ^ xm.rotate_right(7)"),
+                format!("ctx.halted_token_val().wrapping_sub(xm).wrapping_mul(black_box({out_mul}u64)) ^ xm.rotate_right(7)"),
+                format!("tok.wrapping_sub(m_in).wrapping_mul(black_box({in_mul}u64)) ^ m_in.rotate_right(11)"),
+                format!("(r ^ m_out.rotate_right(7)).wrapping_mul(black_box({out_inv}u64)).wrapping_add(m_out)"),
+            ),
+            _ => (
+                format!("((black_box(masked_tok) ^ m_in.swap_bytes()).wrapping_sub(m_in)).wrapping_mul(black_box({in_inv}u64))"),
+                format!("(tok.wrapping_mul(black_box({out_mul}u64)).wrapping_add(xm)) ^ xm.swap_bytes()"),
+                format!("(ctx.halted_token_val().wrapping_mul(black_box({out_mul}u64)).wrapping_add(xm)) ^ xm.swap_bytes()"),
+                format!("(tok.wrapping_mul(black_box({in_mul}u64)).wrapping_add(m_in)) ^ m_in.swap_bytes()"),
+                format!("((r ^ m_out.swap_bytes()).wrapping_sub(m_out)).wrapping_mul(black_box({out_inv}u64))"),
+            ),
+        };
         clusters_code.push_str(&format!(
             r#"#[no_mangle]
 #[inline(never)]
 pub extern "C" fn {sym}(ctx: &mut VmCtx, masked_tok: u64, scrub_out: &mut u64) -> u64 {{
-    let mut tok = black_box(masked_tok)
-        .wrapping_mul(black_box({in_inv}u64))
-        .wrapping_sub(ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64));
+    let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64);
+    let mut tok = {entry_unwrap_expr};
     let mut sub_steps = 0usize;
     loop {{
         let h_lhs = black_box(tok)
@@ -1332,7 +1400,7 @@ pub extern "C" fn {sym}(ctx: &mut VmCtx, masked_tok: u64, scrub_out: &mut u64) -
         if h_lhs == h_rhs || ctx.cluster_of(tok) != {c}usize || sub_steps >= {max_steps}usize {{
             ctx.advance_xform({out_salt}u64, {def_mode}u8);
             let xm = ctx.xform_cluster({c}usize) ^ black_box({out_mask}u64);
-            let out_tok = tok.wrapping_add(xm).wrapping_mul(black_box({out_mul}u64));
+            let out_tok = {exit_wrap_expr};
             let p128 = (black_box(out_tok) as u128).wrapping_mul((black_box(xm) | 1u64) as u128);
             *scrub_out = black_box(((p128 >> 64) as u64) ^ (p128 as u64));
             return out_tok ^ (*scrub_out & 0u64);
@@ -1343,7 +1411,7 @@ pub extern "C" fn {sym}(ctx: &mut VmCtx, masked_tok: u64, scrub_out: &mut u64) -
                 ctx.chaff_pulse({def_salt}u64, {def_mode}u8);
                 ctx.advance_xform({out_salt}u64, {def_mode}u8);
                 let xm = ctx.xform_cluster({c}usize) ^ black_box({out_mask}u64);
-                let out_tok = ctx.halted_token_val().wrapping_add(xm).wrapping_mul(black_box({out_mul}u64));
+                let out_tok = {halt_wrap_expr};
                 let p128 = (black_box(out_tok) as u128).wrapping_mul((black_box(xm) | 1u64) as u128);
                 *scrub_out = black_box(((p128 >> 64) as u64) ^ (p128 as u64));
                 return out_tok ^ (*scrub_out & 0u64);
@@ -1357,7 +1425,7 @@ pub extern "C" fn {sym}(ctx: &mut VmCtx, masked_tok: u64, scrub_out: &mut u64) -
         ));
 
         dispatch_leaves.push(format!(
-            "                            let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64);\n                            let r = {sym}(ctx, tok.wrapping_add(m_in).wrapping_mul(black_box({in_mul}u64)), &mut scrub_slot);\n                            r.wrapping_mul(black_box({out_inv}u64)).wrapping_sub(ctx.xform_cluster({c}usize) ^ black_box({out_mask}u64))\n"
+            "                            let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64);\n                            let r = {sym}(ctx, {caller_wrap_expr}, &mut scrub_slot);\n                            let m_out = ctx.xform_cluster({c}usize) ^ black_box({out_mask}u64);\n                            {caller_unwrap_expr}\n"
         ));
     }
     let dispatch_tree_code = emit_outer_dispatch_tree(&dispatch_leaves, 0, num_clusters, 8);
@@ -1494,26 +1562,51 @@ impl VmCtx {{
     }}
 
     #[inline(always)]
+    pub fn hdr_ic(&self, id: usize) -> usize {{
+        let q = ((id ^ 0x0ausize ^ self.hdr_salt()).wrapping_mul({hdr_perm_mul}usize).wrapping_add({hdr_perm_add}usize)) & 31usize;
+        64usize + q
+    }}
+
+    #[inline(always)]
+    pub fn hdr_rot2(&self, id: usize) -> u32 {{
+        (((id as u32).wrapping_mul(11) ^ 7) & 31) + 1
+    }}
+
+    #[inline(always)]
     pub fn get_pair(&self, id: usize, rot: u32) -> u64 {{
         let ia = self.hdr_ia(id);
         let ib = self.hdr_ib(id);
-        black_box(self.hdr[ia]) ^ black_box(self.hdr[ib]).rotate_left(rot)
+        let ic = self.hdr_ic(id);
+        let rot2 = self.hdr_rot2(id);
+        let ab = black_box(self.hdr[ia]) ^ black_box(self.hdr[ib]).rotate_left(rot);
+        ab.wrapping_sub(black_box(self.hdr[ic]).rotate_right(rot2))
     }}
 
     #[inline(always)]
     pub fn set_pair(&mut self, id: usize, val: u64, mask: u64, rot: u32) {{
         let ia = self.hdr_ia(id);
         let ib = self.hdr_ib(id);
+        let ic = self.hdr_ic(id);
+        let rot2 = self.hdr_rot2(id);
+        let mc = mask.swap_bytes().wrapping_mul(black_box({hdr_c_mul}u64) | 1) ^ val.rotate_left(17);
         self.hdr[ib] = mask;
-        self.hdr[ia] = val ^ mask.rotate_left(rot);
+        self.hdr[ic] = mc;
+        self.hdr[ia] = val.wrapping_add(mc.rotate_right(rot2)) ^ mask.rotate_left(rot);
     }}
 
     #[inline(always)]
     pub fn xor_pair(&mut self, id: usize, delta_b: u64, rot: u32) {{
         let ia = self.hdr_ia(id);
         let ib = self.hdr_ib(id);
-        self.hdr[ib] ^= delta_b;
-        self.hdr[ia] ^= delta_b.rotate_left(rot);
+        let ic = self.hdr_ic(id);
+        let rot2 = self.hdr_rot2(id);
+        let cur_val = (self.hdr[ia] ^ self.hdr[ib].rotate_left(rot))
+            .wrapping_sub(self.hdr[ic].rotate_right(rot2));
+        let new_b = self.hdr[ib] ^ delta_b;
+        let new_c = self.hdr[ic].wrapping_add(delta_b.swap_bytes() | 1);
+        self.hdr[ib] = new_b;
+        self.hdr[ic] = new_c;
+        self.hdr[ia] = cur_val.wrapping_add(new_c.rotate_right(rot2)) ^ new_b.rotate_left(rot);
     }}
 
     #[inline(always)]
@@ -1537,7 +1630,7 @@ impl VmCtx {{
         gate_diff: u64,
         st_ptr: *mut u64,
     ) {{
-        // V12-M1..V12-M5: Kerckhoffs polymorphic layout + single-call coupled transcript + rotating hot header bank
+        // V12-M1..V14-M3: Kerckhoffs polymorphic layout + 3-share mixed-modulus header split + prologue vault ratchet
         let a0 = black_box(arg0 as u64);
         let a1 = black_box(arg1 as u64);
         let m_lo = black_box({ent_mul_lo}u64) as u128;
@@ -1554,13 +1647,16 @@ impl VmCtx {{
             ^ read_rdata_pool(1, 23).rotate_left(17)
             ^ read_rdata_pool(2, 7).rotate_right(13)
             ^ read_rdata_pool(3, 19);
-        let trans_key = {{
+        let trans_key_masked = {{
             let v0 = _mm_set_epi64x(s2 as i64, (s0.wrapping_mul(s1)) as i64);
             let v1 = _mm_set_epi64x((s2 ^ s3) as i64, (s2.rotate_left(23)) as i64);
             let vx = _mm_xor_si128(v0, v1);
             let vshuf = _mm_shuffle_epi32(vx, 0b01_00_11_10);
             let vsum = _mm_add_epi64(vx, vshuf);
-            (_mm_cvtsi128_si64(vsum) as u64) ^ fp_tk_mix ^ black_box(gate_diff).rotate_left(13)
+            (_mm_cvtsi128_si64(vsum) as u64)
+                ^ fp_tk_mix
+                ^ black_box(gate_diff).rotate_left(13)
+                ^ black_box({vault_tk_mask}u64)
         }};
 
         let e_lo = ent128 as u64;
@@ -1609,13 +1705,13 @@ impl VmCtx {{
         let g0_raw = gate ^ gate_diff.rotate_left(19);
         let g1_raw = e_lo.rotate_left(13) ^ e_hi.rotate_right(7) ^ gate_diff.rotate_right(11);
         let dyn_halt = hm_raw.wrapping_add(hb_raw);
-        let init_st = [g0_raw, g1_raw, trans_key, cm_raw];
+        let init_st = [g0_raw, g1_raw, trans_key_masked, cm_raw];
         let init_sealed = seal_return_feistel(0u64, g0_raw, &init_st);
         let r0_raw = m_r0 ^ m_r1.rotate_left(13);
         let r1_raw = (init_sealed ^ dyn_halt.rotate_left(31)).wrapping_sub(hb_raw.rotate_left(13)).wrapping_sub(r0_raw);
 
         let ctx = &mut *ptr;
-        ctx.set_pair(0, trans_key, m_tk, 11);
+        ctx.set_pair(0, trans_key_masked, m_tk, 11);
         ctx.set_pair(1, cm_raw, m_cm, 19);
         ctx.set_pair(2, hm_raw, m_hm, 23);
         ctx.set_pair(3, hb_raw, m_hb, 27);
@@ -1629,6 +1725,8 @@ impl VmCtx {{
         ctx.set_pair(11, stk_add, m_sp, 13);
         ctx.set_pair(12, g0_raw, m_g0, 21);
         ctx.set_pair(13, g1_raw, m_g1, 25);
+        ctx.set_pair(14, black_box({vault_init}u64), m_g0.rotate_left(7), 19);
+        ctx.set_pair(15, e_hi.rotate_left(13), m_g1.rotate_left(11), 19);
         for b in 0..4usize {{
             let base_id = 16usize + (b << 2);
             let b_rot = (b as u32) * 7 + 1;
@@ -1653,12 +1751,21 @@ impl VmCtx {{
             ctx.arg_a[slot] = rb_raw.rotate_left(bias_rot) ^ mk.rotate_left(rot);
         }}
 
-        // V10-M2: Single fused non-power-of-two input-jittered initialization loop
-        let total_init_trips = black_box(523usize + (((e_lo ^ e_hi) as usize) & 31usize));
+        // V10-M2 + V14.2-M1: Branchless continuous prologue vault ratchet across randomized odd vault_steps (no 0x1ff/0x200 branch)
+        let mut r_state = m0 ^ m1.rotate_left(17);
+        let total_init_trips = black_box({vault_steps}usize + 11usize + (((e_lo ^ e_hi) as usize) & 15usize));
         for step in 0..total_init_trips {{
-            let r = ctx.fast_entropy({pre_c2}u64 ^ (step as u64).wrapping_mul({pre_c3}u64), (step & 3) as u8);
-            if step < 2usize {{
-                ctx.set_pair(14usize + step, r.rotate_left(11), r.swap_bytes(), 19);
+            let r = if (step & 7usize) == 0usize {{
+                ctx.fast_entropy({pre_c2}u64 ^ (step as u64).wrapping_mul({pre_c3}u64), (step & 3) as u8)
+            }} else {{
+                r_state
+                    .rotate_left(19)
+                    .wrapping_mul(black_box({pre_c3}u64) | 1)
+                    .wrapping_add(ctx.vault_key_val() ^ (step as u64))
+            }};
+            r_state = r;
+            if step == 0usize {{
+                ctx.set_pair(15, r.rotate_left(11), r.swap_bytes(), 19);
             }}
             if step < {pad_lo_len}usize {{
                 ctx.pad_lo[step] = r.rotate_left(7) ^ {pre_c0}u64;
@@ -1666,7 +1773,17 @@ impl VmCtx {{
             if step < {pad_hi_len}usize {{
                 ctx.pad_hi[step] = r.rotate_right(11) ^ {pre_c1}u64;
             }}
-            if step < 512usize {{
+            if step < {vault_steps}usize {{
+                let vp = read_rdata_pool(step & 3, (step >> 2) & 31);
+                let next_vk = ctx
+                    .vault_key_val()
+                    .rotate_left(13)
+                    .wrapping_mul(black_box({vault_step_mul}u64) | 1)
+                    ^ vp
+                    ^ (step as u64).wrapping_mul(black_box({vault_init}u64));
+                ctx.set_pair(14, next_vk, r.swap_bytes(), 19);
+                let tk_step_delta = next_vk.rotate_left(((step as u32) & 31) + 1) ^ vp.rotate_right(11);
+                ctx.set_pair(0, ctx.trans_key_val() ^ tk_step_delta, r.rotate_left(7), 11);
                 if step < 256usize {{
                     let (bias, rot) = ctx.reg_bias(step);
                     let phys = (step ^ ctx.slot_salt()) & 255usize;
@@ -1682,8 +1799,9 @@ impl VmCtx {{
                     ctx.arena[ib] = r;
                     ctx.arena[ia] = bias ^ r.rotate_left(rot);
                 }} else {{
-                    let ia = ctx.idx_a(step);
-                    let ib = ctx.idx_b(step);
+                    let ch_slot = 384usize + ((step - 384usize) & 127usize);
+                    let ia = ctx.idx_a(ch_slot);
+                    let ib = ctx.idx_b(ch_slot);
                     ctx.arena[ib] = r;
                     ctx.arena[ia] = r.rotate_left(17) ^ {pre_c4}u64;
                 }}
@@ -1770,6 +1888,11 @@ impl VmCtx {{
     }}
 
     #[inline(always)]
+    pub fn vault_key_val(&self) -> u64 {{
+        self.get_pair(14, 19)
+    }}
+
+    #[inline(always)]
     pub fn ent_lo_val(&self) -> u64 {{
         self.get_pair(16usize + (self.hot_bank() << 2), 7)
     }}
@@ -1802,14 +1925,14 @@ impl VmCtx {{
     #[inline(always)]
     pub fn xform_cluster(&self, c: usize) -> u64 {{
         let base = match c & 7 {{
-            0 => self.xform_val(),
-            1 => self.xform_val() ^ self.trans_key_val().rotate_left(7),
-            2 => self.xform_val() ^ self.cluster_mask_val().rotate_left(13),
-            3 => self.xform_val() ^ self.halt_magic_val().rotate_left(19),
-            4 => self.xform_val() ^ self.halt_bias_val().rotate_left(23),
-            5 => self.xform_val() ^ self.reg_bias_seed_val().rotate_left(29),
-            6 => self.xform_val() ^ self.stk_bias_seed_val().rotate_left(31),
-            _ => self.xform_val() ^ self.frm_bias_seed_val().rotate_left(37),
+            0 => self.xform_val().wrapping_add(self.vault_key_val().rotate_left(11)),
+            1 => self.trans_key_val().rotate_left(7) ^ self.ent_lo_val().wrapping_add(self.xform_val()),
+            2 => self.cluster_mask_val().rotate_left(13).wrapping_sub(self.xmm0_val() ^ self.xform_val()),
+            3 => (self.halt_magic_val().rotate_left(19) ^ self.vault_key_val()).wrapping_add(self.xform_val()),
+            4 => self.halt_bias_val().rotate_left(23) ^ self.xform_val().rotate_right(9),
+            5 => self.reg_bias_seed_val().rotate_left(29).wrapping_add(self.ent_hi_val() ^ self.xform_val()),
+            6 => (self.stk_bias_seed_val().rotate_left(31) ^ self.xmm1_val()).wrapping_sub(self.xform_val()),
+            _ => self.frm_bias_seed_val().rotate_left(37).wrapping_add(self.vault_key_val()) ^ self.xform_val(),
         }};
         let fp = read_rdata_pool(c & 3, (c.wrapping_mul(5) ^ (self.slot_salt() & 31usize)) & 31usize);
         base.rotate_left(((c as u32) * 3 + 1) & 31) ^ fp
@@ -1821,8 +1944,7 @@ impl VmCtx {{
         let cur = self.xform_val();
         let next = cur.rotate_left(17).wrapping_add(r | 1);
         self.set_pair(4, next, r, 15);
-        let ch_id = 14usize + (((r >> 11) as usize) & 1usize);
-        self.set_pair(ch_id, r.rotate_left(7), r.swap_bytes(), 19);
+        self.set_pair(15, r.rotate_left(7), r.swap_bytes(), 19);
     }}
 
     #[inline(always)]
@@ -1858,7 +1980,7 @@ impl VmCtx {{
         self.set_pair(11, val, mask as u64, 13);
     }}
 
-    #[inline]
+    #[inline(always)]
     pub fn fast_entropy(&mut self, site_salt: u64, mode: u8) -> u64 {{
         let cur_lo = self.ent_lo_val();
         let cur_hi = self.ent_hi_val();
@@ -1913,9 +2035,9 @@ impl VmCtx {{
         }}
     }}
 
-    #[inline]
+    #[inline(always)]
     pub fn re_share_header(&mut self, r: u64, mode: u8) {{
-        // V11-M3: 8-way entropy-selected header subset re-sharer over rotating hot banks
+        // V11-M3 + V14-M3: 8-way entropy-selected 3-share mixed-modulus header subset re-sharer
         self.hdr_route ^= r & !127u64;
         let hb_base = 16usize + (self.hot_bank() << 2);
         let sel = (((mode as u64) ^ r ^ (r >> 17)) & 7) as u8;
@@ -1937,6 +2059,7 @@ impl VmCtx {{
             2 => {{
                 self.xor_pair(11, r.rotate_left(7), 13);
                 self.xor_pair(2, r.rotate_left(9), 23);
+                self.xor_pair(14, r.rotate_left(23), 19);
                 self.xor_pair(hb_base + 2, r.rotate_left(17), 13);
             }}
             3 => {{
@@ -1958,6 +2081,7 @@ impl VmCtx {{
                 self.xor_pair(8, r.rotate_left(13), 17);
                 self.xor_pair(5, r.rotate_left(23), 17);
                 self.xor_pair(12, r.rotate_left(19), 21);
+                self.xor_pair(14, r.rotate_left(11), 19);
             }}
             _ => {{
                 self.xor_pair(0, r.rotate_left(7), 11);
@@ -2104,12 +2228,13 @@ impl VmCtx {{
         nargs: u32,
         funcs_ptr: *const usize,
         nfuncs: u32,
+        gate: u64,
         st_ptr: *mut u64,
     ) {{
         let n = (nargs as usize).min(8usize);
         let a0 = if n > 0 && !args_ptr.is_null() {{ (*args_ptr.add(0)) as u32 }} else {{ 0u32 }};
         let a1 = if n > 1 && !args_ptr.is_null() {{ (*args_ptr.add(1)) as u32 }} else {{ 0u32 }};
-        Self::init_in_place(ptr, a0, a1, 0u64, 0u64, st_ptr);
+        Self::init_in_place(ptr, a0, a1, gate, 0u64, st_ptr);
         (*ptr).funcs_ptr = funcs_ptr as usize;
         (*ptr).nfuncs = nfuncs;
         let ctx = &mut *ptr;
@@ -2410,18 +2535,44 @@ impl VmCtx {{
     }}
 
     #[inline(always)]
+    pub fn sbox_byte_unmask(&self, idx: usize, salt: u64) -> u8 {{
+        let vk = self.vault_key_val();
+        let w = vk
+            .rotate_left(((idx as u32).wrapping_mul(7) + 3) & 63)
+            .wrapping_add((idx as u64).wrapping_mul(black_box(salt) | 1));
+        ((w ^ (w >> 19) ^ (w >> 41)) & 0xff) as u8
+    }}
+
+    #[inline(always)]
     pub fn sbox_u64(&self, val: u64, key: u64) -> u64 {{
         let x = black_box(val) ^ black_box(key);
-        let b0 = unsafe {{ *ANTIREA_SBOX.get_unchecked((x & 0xff) as usize) }} as u64;
-        let b1 = unsafe {{ *ANTIREA_SBOX.get_unchecked(((x >> 8) & 0xff) as usize) }} as u64;
-        (x & !0xffffu64) | b0 | (b1 << 8)
+        let idx0 = (x & 0xff) as usize;
+        let idx1 = ((x >> 8) & 0xff) as usize;
+        let enc0 = unsafe {{ core::ptr::read_volatile(ANTIREA_SBOX.as_ptr().add(idx0)) }};
+        let enc1 = unsafe {{ core::ptr::read_volatile(ANTIREA_SBOX.as_ptr().add(idx1)) }};
+        let mut d0 = (enc0 ^ self.sbox_byte_unmask(idx0, {sbox_vault_salt}u64)) as u64;
+        let mut d1 = (enc1 ^ self.sbox_byte_unmask(idx1, {sbox_vault_salt}u64)) as u64;
+        let out = (x & !0xffffu64) | d0 | (d1 << 8);
+        unsafe {{
+            core::ptr::write_volatile(&mut d0, 0u64);
+            core::ptr::write_volatile(&mut d1, 0u64);
+        }}
+        out
     }}
 
     #[inline(always)]
     pub fn inv_sbox_u64(&self, val: u64, key: u64) -> u64 {{
-        let b0 = unsafe {{ *ANTIREA_INV_SBOX.get_unchecked((val & 0xff) as usize) }} as u64;
-        let b1 = unsafe {{ *ANTIREA_INV_SBOX.get_unchecked(((val >> 8) & 0xff) as usize) }} as u64;
-        let x = (val & !0xffffu64) | b0 | (b1 << 8);
+        let idx0 = (val & 0xff) as usize;
+        let idx1 = ((val >> 8) & 0xff) as usize;
+        let enc0 = unsafe {{ core::ptr::read_volatile(ANTIREA_INV_SBOX.as_ptr().add(idx0)) }};
+        let enc1 = unsafe {{ core::ptr::read_volatile(ANTIREA_INV_SBOX.as_ptr().add(idx1)) }};
+        let mut d0 = (enc0 ^ self.sbox_byte_unmask(idx0, {inv_sbox_vault_salt}u64)) as u64;
+        let mut d1 = (enc1 ^ self.sbox_byte_unmask(idx1, {inv_sbox_vault_salt}u64)) as u64;
+        let x = (val & !0xffffu64) | d0 | (d1 << 8);
+        unsafe {{
+            core::ptr::write_volatile(&mut d0, 0u64);
+            core::ptr::write_volatile(&mut d1, 0u64);
+        }}
         x ^ black_box(key)
     }}
 
@@ -2471,7 +2622,7 @@ impl VmCtx {{
         self.zext(ma.wrapping_add(mb).wrapping_mul(black_box(ring_inv)), w)
     }}
 
-    #[inline]
+    #[inline(always)]
     pub fn mba_add_poly(&self, a: u64, b: u64, w: u8, variant: u8, sbox_k: u64, ring_m: u64, ring_inv: u64) -> u64 {{
         match variant % 6 {{
             0 => self.mba_add_v0(a, b, w),
@@ -2790,17 +2941,21 @@ pub extern "C" fn {dispatcher_symbol}(arg0: u32, arg1_mix: u32, st_ptr: *mut u64
     unsealed ^ cmask
 }}
 
-#[inline(never)]
+#[inline(always)]
 pub unsafe extern "C" fn run_multilang(
     args_ptr: *const u64,
     nargs: u32,
     funcs_ptr: *const usize,
     nfuncs: u32,
 ) -> u64 {{
-    let mut st = [0u64; 4];
+    let n = (nargs as usize).min(8usize);
+    let a0 = if n > 0 && !args_ptr.is_null() {{ (*args_ptr.add(0)) as u32 }} else {{ 0u32 }};
+    let a1 = if n > 1 && !args_ptr.is_null() {{ (*args_ptr.add(1)) as u32 }} else {{ 0u32 }};
+    let (gate, entry_st) = compute_entry_gate_and_state(a0, a1);
+    let mut st = entry_st;
     let mut ctx_uninit = MaybeUninit::<VmCtx>::uninit();
     let ptr = black_box(ctx_uninit.as_mut_ptr());
-    VmCtx::init_multilang_in_place(ptr, args_ptr, nargs, funcs_ptr, nfuncs, st.as_mut_ptr());
+    VmCtx::init_multilang_in_place(ptr, args_ptr, nargs, funcs_ptr, nfuncs, gate, st.as_mut_ptr());
     let sealed = run_ctx(&mut *ptr);
     let post_st = [
         core::ptr::read_volatile(st.as_ptr().add(0)),
@@ -2808,7 +2963,7 @@ pub unsafe extern "C" fn run_multilang(
         core::ptr::read_volatile(st.as_ptr().add(2)),
         core::ptr::read_volatile(st.as_ptr().add(3)),
     ];
-    unseal_return_feistel(sealed, 0u64, &post_st)
+    unseal_return_feistel(sealed, gate, &post_st)
 }}
 "#,
         entry_trans_0.rot,
@@ -2863,6 +3018,10 @@ pub unsafe extern "C" fn run_multilang(
   "original_bytecode_sha256": "{raw_sha}",
   "generated_runtime_sha256": "{runtime_sha}",
   "counter_exploitation_passes": {{
+    "V14_M1_ephemeral_rdata_sbox_vault_and_volatile_stack_zero_wipe": true,
+    "V14_M2_forced_inlined_polymorphic_leaf_helpers_zero_call_bottleneck": true,
+    "V14_M3_three_share_mixed_modulus_header_split_and_prologue_vault_ratchet": true,
+    "V13_M1_to_M4_retained": true,
     "V12_M1_kerckhoffs_512bit_sponge_csprng_one_way_key_derivation": true,
     "V12_M2_polymorphic_vmctx_struct_field_shuffling_and_bijective_bank_perms": true,
     "V12_M3_polymorphic_opcode_lowering_and_interleaved_chaff": true,
@@ -3076,9 +3235,9 @@ mod tests {
             (art.total_real_nodes + art.total_chaff_nodes) * 2 + 2
         );
 
-        // Verify V12-M1..V12-M5: Kerckhoffs sponge CSPRNG, polymorphic VmCtx layout, inlined single-call pre/post, polymorphic rdata pool
+        // Verify V12-M1..V12-M5 & V14-M1..V14-M3: Kerckhoffs sponge CSPRNG, polymorphic VmCtx layout, 3-share header split, ephemeral vault
         assert!(art.runtime_lib_rs.contains("pub arena: [u64; 1024]"));
-        assert!(art.runtime_lib_rs.contains("pub hdr: [u64; 64]"));
+        assert!(art.runtime_lib_rs.contains("pub hdr: [u64; 96]"));
         assert!(art.runtime_lib_rs.contains("pub pad_lo: [u64;"));
         assert!(art.runtime_lib_rs.contains("pub pad_hi: [u64;"));
         assert!(art.runtime_lib_rs.contains("ANTIREA_RDATA_POOL: [u64; 256]"));
@@ -3088,9 +3247,15 @@ mod tests {
         assert!(art.runtime_lib_rs.contains("seal_return_feistel"));
         assert!(art.runtime_lib_rs.contains("unseal_return_feistel"));
         assert!(art.runtime_lib_rs.contains("hot_bank("));
-        assert!(art.runtime_lib_rs.contains("523usize"));
+        assert!(art.runtime_lib_rs.contains("total_init_trips"));
+        assert!(!art.runtime_lib_rs.contains("step == 511usize"));
         assert!(art.runtime_lib_rs.contains("hdr_ia("));
         assert!(art.runtime_lib_rs.contains("hdr_ib("));
+        assert!(art.runtime_lib_rs.contains("hdr_ic("));
+        assert!(art.runtime_lib_rs.contains("vault_key_val("));
+        assert!(art.runtime_lib_rs.contains("sbox_byte_unmask("));
+        assert!(art.runtime_lib_rs.contains("write_volatile(&mut d0, 0u64)"));
+        assert!(!art.runtime_lib_rs.contains("    #[inline]\n"));
         assert!(art.core_diversified_ll.contains("alloca [4 x i64]"));
         assert!(!art.core_diversified_ll.contains("@antirea_pre_"));
         assert!(!art.core_diversified_ll.contains("@antirea_post_"));
@@ -3134,5 +3299,51 @@ mod tests {
                 "Forbidden dec {dec_str} found in runtime_lib_rs"
             );
         }
+    }
+
+    #[test]
+    fn test_v14_encrypted_sbox_vault_and_3share_header_inlining() {
+        let root = repo_root();
+        let table = antirea_ir::default_opcode_table();
+        let ir_text = fs::read_to_string(
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.prevm.ll"),
+        )
+        .unwrap();
+        let lowered = antirea_ir::lower_llvm_module_functions(
+            &ir_text,
+            &["antirea_score".to_string()],
+            0x414E_5449_5245_4156,
+        )
+        .unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
+        let art = generate_rust_defense(&lowered, &parsed, 141420261102).unwrap();
+
+        // 1. Parse ANTIREA_SBOX bytes from generated source and verify they are encrypted at rest
+        // (an unencrypted S-Box is a bijection of 0..=255 with 256 distinct values; encrypted bytes collide).
+        let sbox_marker = "pub static ANTIREA_SBOX: [u8; 256] = [";
+        let start = art.runtime_lib_rs.find(sbox_marker).unwrap() + sbox_marker.len();
+        let end = art.runtime_lib_rs[start..].find("];").unwrap() + start;
+        let sbox_bytes: Vec<u8> = art.runtime_lib_rs[start..end]
+            .split(',')
+            .map(|tok| {
+                let t = tok.trim().trim_start_matches("0x").trim_end_matches("u8");
+                u8::from_str_radix(t, 16).unwrap()
+            })
+            .collect();
+        assert_eq!(sbox_bytes.len(), 256);
+        let unique_sbox_bytes: BTreeSet<u8> = sbox_bytes.iter().copied().collect();
+        assert!(
+            unique_sbox_bytes.len() < 240,
+            "ANTIREA_SBOX should be encrypted at rest (not a plain 256-permutation), got {} unique bytes",
+            unique_sbox_bytes.len()
+        );
+
+        // 2. Verify 3-share mixed-modulus header splitting, forced leaf inlining, and V14.2 branchless continuous prologue ratchet
+        assert!(art.runtime_lib_rs.contains("pub hdr: [u64; 96]"));
+        assert!(art.runtime_lib_rs.contains("pub fn hdr_ic(&self, id: usize) -> usize"));
+        assert!(art.runtime_lib_rs.contains("ab.wrapping_sub(black_box(self.hdr[ic]).rotate_right(rot2))"));
+        assert!(!art.runtime_lib_rs.contains("    #[inline]\n"));
+        assert!(!art.runtime_lib_rs.contains("step == 511usize"));
+        assert!(!art.runtime_lib_rs.contains("step < 512usize"));
     }
 }

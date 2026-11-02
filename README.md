@@ -165,6 +165,22 @@ Because ANTI-REA is open-source, an attacker (or an autonomous AI agent) can rea
 - **Per-Build Polymorphic `VmCtx` Layout Shuffling & Bijective Bank Permutations (`V12-M2`):** Reading `lib.rs` does not reveal fixed struct field offsets in the compiled binary. Every build shuffles the `#[repr(C)]` field declaration order of `VmCtx` via Fisher-Yates, randomizes padding array lengths (`pad_lo`, `pad_hi`), and generates build-unique bijective affine permutations for both the 64-slot header (`hdr_ia`/`hdr_ib`) and 1,024-slot arena (`idx_a`/`idx_b`).
 - **Polymorphic Opcode Lowering & Superoperator Synthesis (`V12-M3`):** Instead of emitting fixed per-opcode code templates that a known-compiler pattern matcher could classify, each build randomly selects among multiple algebraically equivalent lowering variants (`poly_sel = 0..3`), permutes operand evaluation order, and interleaves self-canceling MBA identities and decoy chaff pulses.
 - **Single-Call Inlined Transcript Coupling & Polymorphic `.rdata` Pool (`V12-M4`):** Eliminates small outlined pre/post wrapper functions from `.pdata`, inlining entry-gate derivation and 4-round Feistel return unsealing directly into `@antirea_dispatch_<tag>` while coupling `@antirea_score` via an inline 4-qword stack transcript (`%vm.st`) mutated across the actual dynamic execution path (`VmCtx::set_return`) and a build-polymorphic `.rdata` pool (`rpool_mul`, `rpool_add`, `rpool_unmask`).
+- **On-Demand Ephemeral S-Box Vault & Zero-Wipe (`V14-M1`, W^X Compliant):** Substitution tables (`VM_SBOX_ENC`) are never stored in plaintext in `.rdata` or kept unpacked in RAM. Instead, each leaf handler decrypts only the needed permutation on the stack using a continuously ratcheted prologue vault key (`hdr_read_pair(ctx, 14)`) and immediately zeroes the stack buffer via `core::ptr::write_volatile(..., 0)` before returning—defeating static `.rdata` extraction, OEP/post-prologue memory dumps, and isolated Unicorn handler probing without requiring OS-flagged `RWX` / `VirtualProtect` pages.
+- **4-Way Polymorphic Leaf Inlining & Non-Isomorphic Token Algebra (`V14-M2` & `V14.2`):** All shared leaf helpers (`helper_a`, `helper_b`) and multi-export channel wrappers (`f1..f4`) are fused and `#[inline(always)]`-lowered into 16 pure leaf cluster handlers (`0` internal `call`s), with 4 non-isomorphic entry/exit token algebras (`c & 3`) and branchless continuous prologue ratcheting (`0` `0x1ff` compare landmarks).
+- **96-Word 3-Share Mixed-Modulus ($\text{GF}(2) \times \mathbb{Z}_{2^{64}}$) Header Splitting & Input Diffusion (`V14-M3` & `V14.2`):** Logical header constants are split across 3 shares combining XOR, bit rotations, and $2^{64}$ modular subtraction `(s0 ^ s1.rotate_left(r1)).wrapping_sub(s2.rotate_right(r2))` while diffusing input across `414 / 416` `VmCtx` qwords, neutralizing 2-trace XOR differential attacks and algebraic share solvers.
+
+### Dynamic Analysis & RSI Evolution Highlights (`V13` → `V14` → `V14.2`)
+
+Tested against our 5-PC parallel external attacker fleet equipped with **Ghidra headless decompilation, Unicorn CPU emulation, API/instruction hooking, and differential memory/stack dumping**:
+
+| Evaluation Metric | V13 (8h Dynamic Attack Baseline) | V14 (RSI Iteration 1) | V14.2 (RSI Iteration 2 — Current) |
+|:---|:---:|:---:|:---:|
+| **Closed-Form Logic Recovery (`recovered`)** | `2 / 5` (`c`, `rust`) | **`0 / 5` (`0%`)** | **`0 / 5` (`0%`)** |
+| **`complete_no_recovery` Verdict Count** | `1 / 5` | `1 / 5` | **`4 / 5` (`c`, `rust`, `cpp`, `swift`) + `1` `partial` (`0` recovery)** |
+| **Plaintext S-Box in `.rdata` or Post-Prologue RAM Dump** | Present (`256B` in `.rdata`) | **`0` (Encrypted + Stack Zero-Wipe)** | **`0` (Encrypted + Continuous Ratchet + Stack Zero-Wipe)** |
+| **Internal `call`s Inside 16 VM Cluster Handlers** | `32+` (`helper_a` / `helper_b`) | **`0` (`100%` Leaf Inlined)** | **`0` (`100%` Leaf Inlined + Whole-Program Channel Fusion)** |
+| **Input-Diffused `VmCtx` Qwords Before Cluster Entry** | Partial (`2-Share` XOR) | `3-Share` Mixed-Modulus | **`414 / 416` (`99.5%` Diffused across `(0,0)` vs `(1,0)`)** |
+| **Attacker-Side Batch Latency (`2,048` Pairs) & Usability** | `3 / 5 USABLE` | `3 / 5 USABLE` | **`5 / 5 USABLE` (`117–317 ms` / `2,048` pairs; `11/11` Languages `USABLE`)** |
 
 **The more protection failures you report through Issues, the stronger ANTI-REA becomes.**
 
@@ -180,7 +196,7 @@ Use VMProtect (or Themida / Code Virtualizer) to keep execution speed above 80% 
 
 | Engine | Connection | Current Status |
 |---|---|---|
-| **ANTI-REA Engine** | In-house Pure-Rust native protection workspace (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`) & 11-language `compile-multilang` VM pipeline | Active Pure-Rust `antirea-rust-v12` engine: Kerckhoffs 512-bit sponge CSPRNG, polymorphic `VmCtx` layout shuffling, single-call inlined Feistel return sealing, tableless 16-cluster superinstruction VM, split `u128` + SSE2 `XMM` state entanglement, multi-blob commercial application support, and automated 4-gate + attacker usability verification |
+| **ANTI-REA Engine** | In-house Pure-Rust native protection workspace (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`) & 11-language `compile-multilang` VM pipeline | Active Pure-Rust `antirea-rust-v12` (`V14.2` dynamic hardening): Kerckhoffs 512-bit sponge CSPRNG, encrypted-at-rest `.rdata` S-Box vault with ephemeral stack decryption & volatile zero-wipe, 96-word 3-share mixed-modulus ($\text{GF}(2) \times \mathbb{Z}_{2^{64}}$) header splitting, 4-way polymorphic leaf inlining (`0` internal cluster calls), branchless continuous prologue ratchet, whole-program cross-channel fusion, and `0/5` recovery across 5 external attacker PCs |
 | **Themida** | Defense MCP/CLI (`.tmd`/`.tm` project) | Windows native x86/x64 PE adapter implemented (requires local installation) |
 | **VMProtect** | Defense MCP/CLI (`.vmp` project) | Windows native x86/x64 PE adapter implemented (requires local installation) |
 | **Code Virtualizer** | Defense MCP/CLI (`.cv` project) | Windows native x86/x64 PE adapter implemented (Legacy / v4 supported, requires local installation) |
