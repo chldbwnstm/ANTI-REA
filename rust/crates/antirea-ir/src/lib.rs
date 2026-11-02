@@ -964,6 +964,22 @@ mod tests {
     #[test]
     fn test_parse_and_eval_protected_ir() {
         let root = repo_root();
+        // The `.runs/` artifacts below are local run output (never committed),
+        // so a fresh clone would panic here. Skip instead; the embedded
+        // `deterministic_vm_corpus` mod covers the parse/eval pipeline on
+        // fresh clones.
+        for name in ["core.after.ll", "core.prevm.ll", "core.before.ll"] {
+            let path = root.join(format!(
+                ".runs/20261018T053820Z-fc74cc/defender/protected/{name}"
+            ));
+            if !path.exists() {
+                eprintln!(
+                    "[skip] run artifact not present: {} — deterministic corpus tests cover the fresh-clone path",
+                    path.display()
+                );
+                return;
+            }
+        }
         let table = default_opcode_table();
         assert_eq!(table.get(&0x00).map(|s| s.as_str()), Some("OP_PUSH_IMM8"));
         assert_eq!(table.get(&0x44).map(|s| s.as_str()), Some("OP_RET"));
@@ -1017,6 +1033,175 @@ mod tests {
             assert_eq!(v_fused, expected, "fused mismatch for ({x}, {y})");
             assert_eq!(v_prevm, expected, "prevm mismatch for ({x}, {y})");
             assert_eq!(v_before, expected, "before mismatch for ({x}, {y})");
+        }
+    }
+
+    /// Hand-written deterministic `_vm_bc_` corpus (fresh-clone safe).
+    ///
+    /// The artifact-pinned test above skips when local `.runs/` output is
+    /// absent; these samples keep the parse -> decode -> fuse -> eval pipeline
+    /// covered everywhere. Every opcode byte follows the default 55-entry
+    /// opcode table (`default_opcode_table`) and the little-endian key-XOR
+    /// encoding consumed by `decode_stock_instructions`:
+    /// `plain[i] = encoded[i] ^ ((key >> (8 * (i & 7))) & 0xff)`.
+    /// No files, no env, no entropy — the same bytes parse and evaluate
+    /// identically on every platform.
+    mod deterministic_vm_corpus {
+        use super::*;
+
+        // (a) arithmetic group — plain ops: 00 05 | 00 03 | 10 40 | 44
+        //     PUSH_IMM8 5; PUSH_IMM8 3; ADD w=64; RET  => 8
+        const ARITH_IR: &str = r#"@antirea_vm_bc_corpus_arith = private constant [7 x i8] c"\56\44\45\51\59\14\0a"
+@antirea_vm_key_corpus_arith = private constant i64 4705791334538363222
+"#;
+
+        // (b) branch group — plain ops: 00 00 | 41 10 00 00 00 | 00 07 |
+        //     40 16 00 00 00 | 00 63 | 00 14 | 00 16 | 10 08 | 44
+        //     PUSH_IMM8 0; JZ ->16; PUSH_IMM8 7; JMP ->22; PUSH_IMM8 99 (dead);
+        //     PUSH_IMM8 20; PUSH_IMM8 22; ADD w=8; RET  => 42 (JZ arm taken;
+        //     jump targets 16/22 are instruction boundaries, enforced by decode)
+        const BRANCH_IR: &str = r#"@antirea_vm_bc_corpus_branch = private constant [23 x i8] c"\88\77\27\45\44\33\22\11\8f\37\70\55\44\33\22\72\88\63\66\43\54\3b\66"
+@antirea_vm_key_corpus_branch = private constant i64 1234605616436508552
+"#;
+
+        // (c) fuse-entry group — plain ops: 00 09 | 05 01 | 04 01 | 00 04 |
+        //     10 10 | 05 02 | 04 02 | 44
+        //     PUSH_IMM8 9; POP_REG 1; PUSH_REG 1; PUSH_IMM8 4; ADD w=16;
+        //     POP_REG 2; PUSH_REG 2; RET  => 13
+        //     fuse_instructions folds this into F_CONST + F_RI_ADD +
+        //     PUSH_REG + RET (the 4-op F_RI pattern entry sequence).
+        const FUSE_IR: &str = r#"@antirea_vm_bc_corpus_fuse = private constant [15 x i8] c"\21\4a\60\86\ad\ca\ed\7b\31\53\60\85\ad\c9\a9"
+@antirea_vm_key_corpus_fuse = private constant i64 9218247941278745377
+"#;
+
+        fn names_of(instructions: &[Instruction]) -> Vec<&str> {
+            instructions
+                .iter()
+                .map(|inst| inst.name.as_str())
+                .collect()
+        }
+
+        #[test]
+        fn corpus_arithmetic_sample_roundtrip_and_digest() {
+            let table = default_opcode_table();
+            let parsed = parse_llvm_vm_ir(ARITH_IR, &table).unwrap();
+            assert_eq!(parsed.global_name, "antirea_vm_bc_corpus_arith");
+            assert_eq!(parsed.suffix, "corpus_arith");
+            assert_eq!(parsed.key, 0x414E_5449_5245_4156);
+            assert_eq!(parsed.raw_bytecode.len(), 7);
+            assert_eq!(parsed.instructions.len(), 4);
+            assert_eq!(
+                names_of(&parsed.instructions),
+                ["OP_PUSH_IMM8", "OP_PUSH_IMM8", "OP_ADD", "OP_RET"]
+            );
+            let offsets: Vec<u32> = parsed
+                .instructions
+                .iter()
+                .map(|inst| inst.offset)
+                .collect();
+            assert_eq!(offsets, [0, 2, 4, 6]);
+            assert_eq!(parsed.instructions[0].values, [5]);
+            assert_eq!(parsed.instructions[1].values, [3]);
+            assert_eq!(parsed.instructions[2].values, [64]); // ADD width 64
+            assert!(parsed.instructions[3].values.is_empty()); // RET has no operands
+            assert_eq!(parsed.fused, parsed.instructions);
+            // parse -> eval round trip: stock and fused forms agree.
+            assert_eq!(eval_instructions(&parsed.instructions, 0, 0).unwrap(), 8);
+            assert_eq!(eval_instructions(&parsed.fused, 0, 0).unwrap(), 8);
+            // Golden vector over raw_bytecode bytes — captured once from the
+            // deterministic corpus, byte-pinned; re-verified by this assertion
+            // on every run and identical on every platform (pure u8 ops).
+            assert_eq!(
+                sha256_hex(&parsed.raw_bytecode),
+                "4b396a48bb594234049f0a148495200d5367207b2ecc9dc4fc1a7baf9b202151"
+            );
+        }
+
+        #[test]
+        fn corpus_branch_sample_roundtrip_and_digest() {
+            let table = default_opcode_table();
+            let parsed = parse_llvm_vm_ir(BRANCH_IR, &table).unwrap();
+            assert_eq!(parsed.global_name, "antirea_vm_bc_corpus_branch");
+            assert_eq!(parsed.key, 0x1122_3344_5566_7788);
+            assert_eq!(parsed.raw_bytecode.len(), 23);
+            assert_eq!(parsed.instructions.len(), 9);
+            assert_eq!(
+                names_of(&parsed.instructions),
+                [
+                    "OP_PUSH_IMM8", "OP_JZ", "OP_PUSH_IMM8", "OP_JMP", "OP_PUSH_IMM8",
+                    "OP_PUSH_IMM8", "OP_PUSH_IMM8", "OP_ADD", "OP_RET"
+                ]
+            );
+            assert_eq!(parsed.instructions[1].values, [16]); // JZ target: boundary @16
+            assert_eq!(parsed.instructions[3].values, [22]); // JMP target: boundary @22 (RET)
+            // Runtime: JZ taken (cond 0) -> 20 + 22 at width 8 => 42; the JMP
+            // arm and the dead PUSH_IMM8 99 never execute.
+            assert_eq!(eval_instructions(&parsed.instructions, 0, 0).unwrap(), 42);
+            assert_eq!(eval_instructions(&parsed.fused, 0, 0).unwrap(), 42);
+            // Golden vector over raw_bytecode bytes — captured once from the
+            // deterministic corpus, byte-pinned; re-verified by this assertion
+            // on every run and identical on every platform (pure u8 ops).
+            assert_eq!(
+                sha256_hex(&parsed.raw_bytecode),
+                "b9975ef63e30a855ed762d989382324b41257666d5ce9c9ae2f498bda2ce64f3"
+            );
+        }
+
+        #[test]
+        fn corpus_fuse_entry_sample_roundtrip_and_digest() {
+            let table = default_opcode_table();
+            let parsed = parse_llvm_vm_ir(FUSE_IR, &table).unwrap();
+            assert_eq!(parsed.global_name, "antirea_vm_bc_corpus_fuse");
+            assert_eq!(parsed.key, 0x7FED_CBA9_8765_4321);
+            assert_eq!(parsed.raw_bytecode.len(), 15);
+            assert_eq!(parsed.instructions.len(), 8);
+            assert_eq!(
+                names_of(&parsed.instructions),
+                [
+                    "OP_PUSH_IMM8", "OP_POP_REG", "OP_PUSH_REG", "OP_PUSH_IMM8",
+                    "OP_ADD", "OP_POP_REG", "OP_PUSH_REG", "OP_RET"
+                ]
+            );
+            // Stock program: r1 = 9; r2 = r1 + 4 (w=16); RET r2 => 13.
+            assert_eq!(eval_instructions(&parsed.instructions, 0, 0).unwrap(), 13);
+            // Fuse entry: PUSH_REG + immediate + fusable ALU + POP_REG -> F_RI_ADD.
+            assert!(parsed.fused.len() >= 1);
+            assert_eq!(
+                names_of(&parsed.fused),
+                ["F_CONST", "F_RI_ADD", "OP_PUSH_REG", "OP_RET"]
+            );
+            let f_ri_add = &parsed.fused[1];
+            assert_eq!(f_ri_add.originals, 4);
+            assert_eq!(f_ri_add.values, [2, 1, 16, 4]); // dst, src, width, imm
+            assert_eq!(f_ri_add.widths, [1, 1, 1, 8]);
+            // Fused program must evaluate identically to the stock form.
+            assert_eq!(eval_instructions(&parsed.fused, 0, 0).unwrap(), 13);
+            // Golden vector over raw_bytecode bytes — captured once from the
+            // deterministic corpus, byte-pinned; re-verified by this assertion
+            // on every run and identical on every platform (pure u8 ops).
+            assert_eq!(
+                sha256_hex(&parsed.raw_bytecode),
+                "00e5f224d010e3f29442ef2c3433fa304be2410c80c29728da897be0a31d37b2"
+            );
+        }
+
+        #[test]
+        fn corpus_digests_report() {
+            // Report-only: prints the three golden vectors under `--nocapture`
+            // so two consecutive runs (or a fresh clone) can be diffed
+            // byte-for-byte to confirm digest determinism.
+            let table = default_opcode_table();
+            for (name, ir) in [
+                ("corpus_arith", ARITH_IR),
+                ("corpus_branch", BRANCH_IR),
+                ("corpus_fuse", FUSE_IR),
+            ] {
+                let parsed = parse_llvm_vm_ir(ir, &table).unwrap();
+                eprintln!(
+                    "corpus {name} sha256(raw_bytecode): {}",
+                    sha256_hex(&parsed.raw_bytecode)
+                );
+            }
         }
     }
 }
