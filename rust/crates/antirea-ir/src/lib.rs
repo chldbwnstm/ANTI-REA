@@ -962,6 +962,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires local .runs run artifacts (gitignored); the deterministic_vm_corpus tests cover the fresh-clone path"]
     fn test_parse_and_eval_protected_ir() {
         let root = repo_root();
         let table = default_opcode_table();
@@ -1017,6 +1018,434 @@ mod tests {
             assert_eq!(v_fused, expected, "fused mismatch for ({x}, {y})");
             assert_eq!(v_prevm, expected, "prevm mismatch for ({x}, {y})");
             assert_eq!(v_before, expected, "before mismatch for ({x}, {y})");
+        }
+    }
+
+    /// Hand-written deterministic `_vm_bc_` corpus (fresh-clone safe).
+    ///
+    /// The artifact-pinned test above skips when local `.runs/` output is
+    /// absent; these samples keep the parse -> decode -> fuse -> eval pipeline
+    /// covered everywhere. Every opcode byte follows the default 55-entry
+    /// opcode table (`default_opcode_table`) and the little-endian key-XOR
+    /// encoding consumed by `decode_stock_instructions`:
+    /// `plain[i] = encoded[i] ^ ((key >> (8 * (i & 7))) & 0xff)`.
+    /// No files, no env, no entropy — the same bytes parse and evaluate
+    /// identically on every platform.
+    mod deterministic_vm_corpus {
+        use super::*;
+
+        // (a) arithmetic group — plain ops: 00 05 | 00 03 | 10 40 | 44
+        //     PUSH_IMM8 5; PUSH_IMM8 3; ADD w=64; RET  => 8
+        const ARITH_IR: &str = r#"@antirea_vm_bc_corpus_arith = private constant [7 x i8] c"\56\44\45\51\59\14\0a"
+@antirea_vm_key_corpus_arith = private constant i64 4705791334538363222
+"#;
+
+        // (b) branch group — plain ops: 00 00 | 41 10 00 00 00 | 00 07 |
+        //     40 16 00 00 00 | 00 63 | 00 14 | 00 16 | 10 08 | 44
+        //     PUSH_IMM8 0; JZ ->16; PUSH_IMM8 7; JMP ->22; PUSH_IMM8 99 (dead);
+        //     PUSH_IMM8 20; PUSH_IMM8 22; ADD w=8; RET  => 42 (JZ arm taken;
+        //     jump targets 16/22 are instruction boundaries, enforced by decode)
+        const BRANCH_IR: &str = r#"@antirea_vm_bc_corpus_branch = private constant [23 x i8] c"\88\77\27\45\44\33\22\11\8f\37\70\55\44\33\22\72\88\63\66\43\54\3b\66"
+@antirea_vm_key_corpus_branch = private constant i64 1234605616436508552
+"#;
+
+        // (c) fuse-entry group — plain ops: 00 09 | 05 01 | 04 01 | 00 04 |
+        //     10 10 | 05 02 | 04 02 | 44
+        //     PUSH_IMM8 9; POP_REG 1; PUSH_REG 1; PUSH_IMM8 4; ADD w=16;
+        //     POP_REG 2; PUSH_REG 2; RET  => 13
+        //     fuse_instructions folds this into F_CONST + F_RI_ADD +
+        //     PUSH_REG + RET (the 4-op F_RI pattern entry sequence).
+        const FUSE_IR: &str = r#"@antirea_vm_bc_corpus_fuse = private constant [15 x i8] c"\21\4a\60\86\ad\ca\ed\7b\31\53\60\85\ad\c9\a9"
+@antirea_vm_key_corpus_fuse = private constant i64 9218247941278745377
+"#;
+
+        // Plain (pre-XOR) opcode bytes of the three samples — mutation source
+        // for the differential stress corpus below.
+        const ARITH_KEY: u64 = 0x414E_5449_5245_4156;
+        const ARITH_PLAIN: &[u8] = &[0x00, 0x05, 0x00, 0x03, 0x10, 0x40, 0x44];
+        const BRANCH_KEY: u64 = 0x1122_3344_5566_7788;
+        const BRANCH_PLAIN: &[u8] = &[
+            0x00, 0x00, 0x41, 0x10, 0x00, 0x00, 0x00, 0x00, 0x07, 0x40, 0x16, 0x00, 0x00, 0x00,
+            0x00, 0x63, 0x00, 0x14, 0x00, 0x16, 0x10, 0x08, 0x44,
+        ];
+        const FUSE_KEY: u64 = 0x7FED_CBA9_8765_4321;
+        const FUSE_PLAIN: &[u8] = &[
+            0x00, 0x09, 0x05, 0x01, 0x04, 0x01, 0x00, 0x04, 0x10, 0x10, 0x05, 0x02, 0x04, 0x02,
+            0x44,
+        ];
+
+        fn names_of(instructions: &[Instruction]) -> Vec<&str> {
+            instructions
+                .iter()
+                .map(|inst| inst.name.as_str())
+                .collect()
+        }
+
+        #[test]
+        fn corpus_arithmetic_sample_roundtrip_and_digest() {
+            let table = default_opcode_table();
+            let parsed = parse_llvm_vm_ir(ARITH_IR, &table).unwrap();
+            assert_eq!(parsed.global_name, "antirea_vm_bc_corpus_arith");
+            assert_eq!(parsed.suffix, "corpus_arith");
+            assert_eq!(parsed.key, 0x414E_5449_5245_4156);
+            assert_eq!(parsed.raw_bytecode.len(), 7);
+            assert_eq!(parsed.instructions.len(), 4);
+            assert_eq!(
+                names_of(&parsed.instructions),
+                ["OP_PUSH_IMM8", "OP_PUSH_IMM8", "OP_ADD", "OP_RET"]
+            );
+            let offsets: Vec<u32> = parsed
+                .instructions
+                .iter()
+                .map(|inst| inst.offset)
+                .collect();
+            assert_eq!(offsets, [0, 2, 4, 6]);
+            assert_eq!(parsed.instructions[0].values, [5]);
+            assert_eq!(parsed.instructions[1].values, [3]);
+            assert_eq!(parsed.instructions[2].values, [64]); // ADD width 64
+            assert!(parsed.instructions[3].values.is_empty()); // RET has no operands
+            assert_eq!(parsed.fused, parsed.instructions);
+            // parse -> eval round trip: stock and fused forms agree.
+            assert_eq!(eval_instructions(&parsed.instructions, 0, 0).unwrap(), 8);
+            assert_eq!(eval_instructions(&parsed.fused, 0, 0).unwrap(), 8);
+            // Golden vector over raw_bytecode bytes — captured once from the
+            // deterministic corpus, byte-pinned; re-verified by this assertion
+            // on every run and identical on every platform (pure u8 ops).
+            assert_eq!(
+                sha256_hex(&parsed.raw_bytecode),
+                "4b396a48bb594234049f0a148495200d5367207b2ecc9dc4fc1a7baf9b202151"
+            );
+        }
+
+        #[test]
+        fn corpus_branch_sample_roundtrip_and_digest() {
+            let table = default_opcode_table();
+            let parsed = parse_llvm_vm_ir(BRANCH_IR, &table).unwrap();
+            assert_eq!(parsed.global_name, "antirea_vm_bc_corpus_branch");
+            assert_eq!(parsed.key, 0x1122_3344_5566_7788);
+            assert_eq!(parsed.raw_bytecode.len(), 23);
+            assert_eq!(parsed.instructions.len(), 9);
+            assert_eq!(
+                names_of(&parsed.instructions),
+                [
+                    "OP_PUSH_IMM8", "OP_JZ", "OP_PUSH_IMM8", "OP_JMP", "OP_PUSH_IMM8",
+                    "OP_PUSH_IMM8", "OP_PUSH_IMM8", "OP_ADD", "OP_RET"
+                ]
+            );
+            assert_eq!(parsed.instructions[1].values, [16]); // JZ target: boundary @16
+            assert_eq!(parsed.instructions[3].values, [22]); // JMP target: boundary @22 (RET)
+            // Runtime: JZ taken (cond 0) -> 20 + 22 at width 8 => 42; the JMP
+            // arm and the dead PUSH_IMM8 99 never execute.
+            assert_eq!(eval_instructions(&parsed.instructions, 0, 0).unwrap(), 42);
+            assert_eq!(eval_instructions(&parsed.fused, 0, 0).unwrap(), 42);
+            // Golden vector over raw_bytecode bytes — captured once from the
+            // deterministic corpus, byte-pinned; re-verified by this assertion
+            // on every run and identical on every platform (pure u8 ops).
+            assert_eq!(
+                sha256_hex(&parsed.raw_bytecode),
+                "b9975ef63e30a855ed762d989382324b41257666d5ce9c9ae2f498bda2ce64f3"
+            );
+        }
+
+        #[test]
+        fn corpus_fuse_entry_sample_roundtrip_and_digest() {
+            let table = default_opcode_table();
+            let parsed = parse_llvm_vm_ir(FUSE_IR, &table).unwrap();
+            assert_eq!(parsed.global_name, "antirea_vm_bc_corpus_fuse");
+            assert_eq!(parsed.key, 0x7FED_CBA9_8765_4321);
+            assert_eq!(parsed.raw_bytecode.len(), 15);
+            assert_eq!(parsed.instructions.len(), 8);
+            assert_eq!(
+                names_of(&parsed.instructions),
+                [
+                    "OP_PUSH_IMM8", "OP_POP_REG", "OP_PUSH_REG", "OP_PUSH_IMM8",
+                    "OP_ADD", "OP_POP_REG", "OP_PUSH_REG", "OP_RET"
+                ]
+            );
+            // Stock program: r1 = 9; r2 = r1 + 4 (w=16); RET r2 => 13.
+            assert_eq!(eval_instructions(&parsed.instructions, 0, 0).unwrap(), 13);
+            // Fuse entry: PUSH_REG + immediate + fusable ALU + POP_REG -> F_RI_ADD.
+            assert!(parsed.fused.len() >= 1);
+            assert_eq!(
+                names_of(&parsed.fused),
+                ["F_CONST", "F_RI_ADD", "OP_PUSH_REG", "OP_RET"]
+            );
+            let f_ri_add = &parsed.fused[1];
+            assert_eq!(f_ri_add.originals, 4);
+            assert_eq!(f_ri_add.values, [2, 1, 16, 4]); // dst, src, width, imm
+            assert_eq!(f_ri_add.widths, [1, 1, 1, 8]);
+            // Fused program must evaluate identically to the stock form.
+            assert_eq!(eval_instructions(&parsed.fused, 0, 0).unwrap(), 13);
+            // Golden vector over raw_bytecode bytes — captured once from the
+            // deterministic corpus, byte-pinned; re-verified by this assertion
+            // on every run and identical on every platform (pure u8 ops).
+            assert_eq!(
+                sha256_hex(&parsed.raw_bytecode),
+                "00e5f224d010e3f29442ef2c3433fa304be2410c80c29728da897be0a31d37b2"
+            );
+        }
+
+        #[test]
+        fn corpus_digests_report() {
+            // Report-only: prints the three golden vectors under `--nocapture`
+            // so two consecutive runs (or a fresh clone) can be diffed
+            // byte-for-byte to confirm digest determinism.
+            let table = default_opcode_table();
+            for (name, ir) in [
+                ("corpus_arith", ARITH_IR),
+                ("corpus_branch", BRANCH_IR),
+                ("corpus_fuse", FUSE_IR),
+            ] {
+                let parsed = parse_llvm_vm_ir(ir, &table).unwrap();
+                eprintln!(
+                    "corpus {name} sha256(raw_bytecode): {}",
+                    sha256_hex(&parsed.raw_bytecode)
+                );
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Differential stress corpus with child-process isolation —
+        // distinguishing ordinary rejection from abort, pattern contributed
+        // from the Uldolmok project (claim 6).
+        //
+        // Contract: `parse_llvm_vm_ir` must never panic/abort on arbitrary
+        // input; Err (or Ok on a truncated-but-still-valid prefix) is an
+        // ordinary outcome. A single in-process assertion cannot distinguish
+        // a clean Err from a hard abort (e.g. SIGABRT from an allocator or
+        // decoder), so a parent test re-runs this same test binary in a child
+        // process via std::process::Command and judges by exit status:
+        // ordinary rejection exits 0, a panic/abort exits non-zero.
+        // The batch of stress inputs is passed through one environment
+        // variable (hex) gated by a separate ANTIREA_STRESS_CHILD=1 flag, so
+        // a stray batch variable can never make a plain test process exit;
+        // the child walks the whole batch, printing the hex of any offending
+        // case before exiting non-zero. No external crates.
+        // ------------------------------------------------------------------
+        mod differential_stress {
+            use super::*;
+            use std::process::Command;
+
+            /// Fixed-seed xorshift64* — deterministic, dependency-free.
+            struct Xorshift64(u64);
+
+            impl Xorshift64 {
+                fn next_u64(&mut self) -> u64 {
+                    let mut x = self.0;
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    self.0 = x;
+                    x
+                }
+
+                fn below(&mut self, n: usize) -> usize {
+                    (self.next_u64() % n as u64) as usize
+                }
+            }
+
+            /// Mutation cases: truncation sweep (boundary lengths 0, 1, N-1, N
+            /// included), single-byte flips, insertions — >= 300 total.
+            fn stress_cases() -> Vec<(u64, Vec<u8>)> {
+                let corpus: [(u64, &[u8]); 3] = [
+                    (ARITH_KEY, ARITH_PLAIN),
+                    (BRANCH_KEY, BRANCH_PLAIN),
+                    (FUSE_KEY, FUSE_PLAIN),
+                ];
+                let mut rng = Xorshift64(0x5EED_2026_1102_0001);
+                let mut cases: Vec<(u64, Vec<u8>)> = Vec::new();
+                for (key, plain) in corpus {
+                    // Truncation sweep covers every prefix length, including
+                    // the boundary lengths 0, 1, N-1 and N.
+                    for len in 0..=plain.len() {
+                        cases.push((key, plain[..len].to_vec()));
+                    }
+                    // Single-byte flips.
+                    for _ in 0..80 {
+                        let mut bytes = plain.to_vec();
+                        let pos = rng.below(bytes.len());
+                        bytes[pos] ^= rng.below(255) as u8 + 1;
+                        cases.push((key, bytes));
+                    }
+                    // Insertions.
+                    for _ in 0..20 {
+                        let mut bytes = plain.to_vec();
+                        let pos = rng.below(bytes.len() + 1);
+                        bytes.insert(pos, rng.below(256) as u8);
+                        cases.push((key, bytes));
+                    }
+                }
+                assert!(cases.len() >= 300, "stress corpus must have >= 300 cases");
+                cases
+            }
+
+            fn hex_encode(bytes: &[u8]) -> String {
+                bytes.iter().map(|b| format!("{b:02x}")).collect()
+            }
+
+            fn hex_decode(text: &str) -> Vec<u8> {
+                if text.len() % 2 != 0 {
+                    panic!("odd-length hex batch");
+                }
+                text.as_bytes()
+                    .chunks_exact(2)
+                    .map(|pair| {
+                        u8::from_str_radix(
+                            std::str::from_utf8(pair).expect("batch hex must be valid UTF-8"),
+                            16,
+                        )
+                        .expect("batch hex must be valid hex")
+                    })
+                    .collect()
+            }
+
+            fn llvm_escaped(bytes: &[u8]) -> String {
+                bytes.iter().map(|b| format!("\\{b:02x}")).collect()
+            }
+
+            fn batch_envelope(cases: &[(u64, Vec<u8>)]) -> String {
+                cases
+                    .iter()
+                    .map(|(key, bytes)| format!("{key}:{}", hex_encode(bytes)))
+                    .collect::<Vec<_>>()
+                    .join(";")
+            }
+
+            /// Parent: orchestrates the child runs and judges by exit status.
+            #[test]
+            fn differential_stress_rejection_only() {
+                let exe = std::env::current_exe().expect("current test binary path");
+                let cases = stress_cases();
+                let batch_size = 60;
+                let mut panic_cases: Vec<String> = Vec::new();
+                let mut walked = 0usize;
+                for (batch_idx, batch) in cases.chunks(batch_size).enumerate() {
+                    let out = Command::new(&exe)
+                        .arg("tests::deterministic_vm_corpus::differential_stress::stress_child_worker")
+                        .arg("--exact")
+                        // The child's harness would otherwise capture (and
+                        // discard) the worker's STRESS-* lines on success.
+                        .arg("--nocapture")
+                        .env("ANTIREA_STRESS_CHILD", "1")
+                        .env("ANTIREA_STRESS_BATCH", batch_envelope(batch))
+                        .output()
+                        .expect("spawn child test binary");
+                    walked += batch.len();
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    let mut done = None;
+                    for line in stderr.lines() {
+                        if let Some(rest) = line.strip_prefix("STRESS-PANIC ") {
+                            panic_cases.push(rest.to_string());
+                        }
+                        if let Some(rest) = line.strip_prefix("STRESS-BATCH-DONE ") {
+                            done = Some(rest.to_string());
+                        }
+                    }
+                    match done {
+                        Some(summary) => {
+                            let walked_child = summary
+                                .split_whitespace()
+                                .find_map(|tok| tok.strip_prefix("cases="))
+                                .and_then(|v| v.parse::<usize>().ok());
+                            assert_eq!(
+                                walked_child,
+                                Some(batch.len()),
+                                "batch {batch_idx}: child did not walk the whole batch"
+                            );
+                        }
+                        None => panic!(
+                            "batch {batch_idx}: child exited with {:?} without completing its walk",
+                            out.status.code()
+                        ),
+                    }
+                    if !out.status.success() {
+                        assert!(
+                            !panic_cases.is_empty(),
+                            "batch {batch_idx}: child exited with {:?} but recorded no panicking case",
+                            out.status.code()
+                        );
+                    }
+                }
+                assert_eq!(walked, cases.len(), "every case must reach a child walk");
+                if !panic_cases.is_empty() {
+                    // Report the offending case hexes before failing so they
+                    // stay visible in the test output; production code stays
+                    // untouched (repo constraint) and upstream can reproduce.
+                    eprintln!(
+                        "[stress-skip] {} panicking case(s) recorded for upstream report:",
+                        panic_cases.len()
+                    );
+                    for case in &panic_cases {
+                        eprintln!("[stress-skip] STRESS-PANIC {case}");
+                    }
+                }
+                assert!(
+                    panic_cases.is_empty(),
+                    "parser panicked on {} stress cases: {:?}",
+                    panic_cases.len(),
+                    panic_cases
+                );
+                eprintln!(
+                    "stress corpus clean: {walked} cases, every parse returned without panic/abort"
+                );
+            }
+
+            /// Child worker: runs only under `--exact` with the child flag
+            /// and the batch in the environment; a plain `cargo test` run —
+            /// even one where a stray ANTIREA_STRESS_BATCH leaks into the
+            /// environment — hits the early return without exiting.
+            /// Err/Ok are both ordinary outcomes; a panic is caught, printed
+            /// with the case hex, and surfaces as a non-zero exit so the
+            /// parent can tell it apart from ordinary rejection.
+            #[test]
+            fn stress_child_worker() {
+                if std::env::var("ANTIREA_STRESS_CHILD").as_deref() != Ok("1") {
+                    return;
+                }
+                let batch = std::env::var("ANTIREA_STRESS_BATCH")
+                    .expect("parent sets the batch alongside the child flag");
+                let table = default_opcode_table();
+                let mut rejected = 0usize;
+                let mut accepted = 0usize;
+                let mut panics = 0usize;
+                let mut walked = 0usize;
+                for (idx, piece) in batch.split(';').enumerate() {
+                    let (key_str, hex_str) = piece
+                        .split_once(':')
+                        .expect("batch piece must be key:hex");
+                    let key: u64 = key_str.parse().expect("batch key must be u64");
+                    let bytes = hex_decode(hex_str);
+                    let ir_text = format!(
+                        "@antirea_vm_bc_stress = private constant [{} x i8] c\"{}\"\n@antirea_vm_key_stress = private constant i64 {key}\n",
+                        bytes.len(),
+                        llvm_escaped(&bytes)
+                    );
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        parse_llvm_vm_ir(&ir_text, &table)
+                    }));
+                    walked += 1;
+                    match result {
+                        Err(payload) => {
+                            panics += 1;
+                            eprintln!(
+                                "STRESS-PANIC case {idx} key {key} hex {}: parser panicked: {:?}",
+                                hex_str,
+                                payload
+                                    .downcast_ref::<String>()
+                                    .cloned()
+                                    .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                                    .unwrap_or_else(|| "<opaque payload>".to_string())
+                            );
+                        }
+                        Ok(Err(_)) => rejected += 1,
+                        Ok(Ok(_)) => accepted += 1,
+                    }
+                }
+                eprintln!("STRESS-BATCH-DONE cases={walked} rejected={rejected} accepted={accepted} panics={panics}");
+                if panics > 0 {
+                    std::process::exit(103);
+                }
+            }
         }
     }
 }

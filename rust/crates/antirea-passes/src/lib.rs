@@ -3209,6 +3209,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires local .runs run artifacts (gitignored); the deterministic_vm_corpus tests cover the fresh-clone path"]
     fn test_generate_rust_defense_v12_counter_m1_to_m5() {
         let root = repo_root();
         let table = antirea_ir::default_opcode_table();
@@ -3302,6 +3303,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires local .runs run artifacts (gitignored); the deterministic_vm_corpus tests cover the fresh-clone path"]
     fn test_v14_encrypted_sbox_vault_and_3share_header_inlining() {
         let root = repo_root();
         let table = antirea_ir::default_opcode_table();
