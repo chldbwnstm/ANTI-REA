@@ -379,7 +379,7 @@ pub fn build_and_validate_candidate(
     let inspection_json = format!(
         r#"{{
   "passed": {inspection_passed},
-  "engine": "antirea-rust-v12",
+  "engine": "antirea-rust-v19",
   "dispatcher_symbol": "{}",
   "executable_sha256": "{exe_sha256}",
   "core_object_sha256": "{core_obj_sha256}",
@@ -502,8 +502,8 @@ pub fn build_and_validate_candidate(
         r#"{{
   "schema_version": 1,
   "status": "{overall_status}",
-  "engine": "antirea-rust-v12",
-  "format_version": 12,
+  "engine": "antirea-rust-v19",
+  "format_version": 19,
   "candidate": "{}",
   "candidate_sha256": "{exe_sha256}",
   "previous": "{}",
@@ -513,10 +513,10 @@ pub fn build_and_validate_candidate(
   "protection": {{
     "status": "{}",
     "evidence": {{
-      "format_version": 12,
-      "engine": "antirea-rust-v12",
+      "format_version": 19,
+      "engine": "antirea-rust-v19",
       "dispatcher_symbol": "{}",
-      "cluster_count": 16,
+      "cluster_count": {},
       "total_real_nodes": {},
       "total_chaff_nodes": {},
       "total_state_arms": {},
@@ -586,6 +586,7 @@ pub fn build_and_validate_candidate(
         baseline_exe.display().to_string().replace('\\', "/"),
         if inspection_passed { "passed" } else { "failed" },
         artifact.dispatcher_symbol,
+        artifact.cluster_symbols.len(),
         artifact.total_real_nodes,
         artifact.total_chaff_nodes,
         artifact.total_state_arms,
@@ -649,8 +650,8 @@ pub fn compile_multilang_rust_runtime(
     let report = format!(
         r#"{{
   "status": "passed",
-  "engine": "antirea-rust-v12",
-  "format_version": 12,
+  "engine": "antirea-rust-v19",
+  "format_version": 19,
   "seed_commitment_sha256": "{seed_commitment_sha256}",
   "blob_count": {},
   "dispatcher_symbols": {:?},

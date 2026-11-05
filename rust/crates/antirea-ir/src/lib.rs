@@ -1019,4 +1019,86 @@ mod tests {
             assert_eq!(v_before, expected, "before mismatch for ({x}, {y})");
         }
     }
+
+    #[test]
+    fn test_lower_fshl_fshr_bswap_and_inline_asm_barrier() {
+        let ir = r#"
+define dso_local i64 @oss_intrinsics(i32 %x, i32 %y) {
+entry:
+  %bs = tail call i32 @llvm.bswap.i32(i32 %x)
+  %r0 = tail call i32 @llvm.fshr.i32(i32 %bs, i32 %y, i32 0)
+  %r7 = tail call i32 @llvm.fshr.i32(i32 %bs, i32 %r0, i32 7)
+  %r_dyn = tail call i32 @llvm.fshl.i32(i32 %r7, i32 %r7, i32 %y)
+  %x64 = zext i32 %r_dyn to i64
+  %y64 = zext i32 %y to i64
+  %rot = tail call i64 @llvm.fshl.i64(i64 %x64, i64 %x64, i64 31)
+  %guarded = tail call i64 asm "", "=r,0,~{dirflag},~{fpsr},~{flags}"(i64 %rot)
+  %out = xor i64 %guarded, %y64
+  ret i64 %out
+}
+"#;
+        let table = default_opcode_table();
+        let lowered = lower_llvm_module_functions(ir, &["oss_intrinsics".to_string()], 0x12345678).unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
+        for &(x, y) in &[(0x12345678u32, 0x9abcdef0u32), (0u32, 0u32), (u32::MAX, 1u32), (0xdeadbeefu32, 32u32)] {
+            let bs = x.swap_bytes();
+            let r0 = y;
+            let r7 = (r0 >> 7) | (bs << 25);
+            let r_dyn = r7.rotate_left(y % 32);
+            let rot = (r_dyn as u64).rotate_left(31);
+            let expected = rot ^ (y as u64);
+            assert_eq!(eval_instructions(&parsed.instructions, x, y).unwrap(), expected);
+            assert_eq!(eval_instructions(&parsed.fused, x, y).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn test_lower_gep_ctlz_cttz_ctpop() {
+        let ir = r#"
+define dso_local i64 @oss_bitops_and_gep(i32 %x, i32 %y) {
+entry:
+  %buf = alloca i64, align 8
+  %x64 = zext i32 %x to i64
+  %y64 = zext i32 %y to i64
+  %packed = shl i64 %y64, 32
+  %full = or i64 %packed, %x64
+  store i64 %full, ptr %buf, align 8
+  %hi_ptr = getelementptr inbounds nuw i8, ptr %buf, i64 4
+  %hi32 = load i32, ptr %hi_ptr, align 4
+  %lz = tail call i32 @llvm.ctlz.i32(i32 %x, i1 false)
+  %tz = tail call i32 @llvm.cttz.i32(i32 %hi32, i1 false)
+  %pop = tail call i64 @llvm.ctpop.i64(i64 %full)
+  %lz64 = zext i32 %lz to i64
+  %tz64 = zext i32 %tz to i64
+  %t0 = add i64 %lz64, %tz64
+  %res = xor i64 %t0, %pop
+  ret i64 %res
+}
+"#;
+        let table = default_opcode_table();
+        let lowered =
+            lower_llvm_module_functions(ir, &["oss_bitops_and_gep".to_string()], 0xABCDEF0123456789)
+                .unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
+        for &(x, y) in &[
+            (0u32, 0u32),
+            (1u32, 0x80000000u32),
+            (0x12345678u32, 0x9abcdef0u32),
+            (u32::MAX, u32::MAX),
+        ] {
+            let full = ((y as u64) << 32) | (x as u64);
+            let expected =
+                ((x.leading_zeros() as u64) + (y.trailing_zeros() as u64)) ^ (full.count_ones() as u64);
+            assert_eq!(
+                eval_instructions(&parsed.instructions, x, y).unwrap(),
+                expected,
+                "mismatch for ({x:#x}, {y:#x})"
+            );
+            assert_eq!(
+                eval_instructions(&parsed.fused, x, y).unwrap(),
+                expected,
+                "fused mismatch for ({x:#x}, {y:#x})"
+            );
+        }
+    }
 }

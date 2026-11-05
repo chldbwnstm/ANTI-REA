@@ -176,6 +176,32 @@ enum IrStmt {
         a: String,
         b: String,
     },
+    FunnelShift {
+        dst: String,
+        is_left: bool,
+        width: u8,
+        a: String,
+        b: String,
+        s: String,
+    },
+    Bswap {
+        dst: String,
+        width: u8,
+        src: String,
+    },
+    BitCount {
+        dst: String,
+        kind: String,
+        width: u8,
+        src: String,
+    },
+    Gep {
+        dst: String,
+        base_ptr: String,
+        elem_bytes: u64,
+        idx_width: u8,
+        idx_op: String,
+    },
     Ret(Option<(u8, String)>),
     BrUncond(String),
     BrCond {
@@ -498,9 +524,22 @@ fn parse_function_blocks(
                         .map(|s| s.trim())
                         .collect();
                     let ty_str = comma_parts[0];
-                    let width = parse_type_width(ty_str)?;
-                    let bytes = ((width as u32) + 7) / 8;
-                    let mut align = bytes.max(1);
+                    let bytes = if ty_str.starts_with('[') && ty_str.ends_with(']') {
+                        let inner = &ty_str[1..ty_str.len() - 1];
+                        let x_pos = inner
+                            .find('x')
+                            .ok_or_else(|| format!("Malformed array alloca: {line}"))?;
+                        let cnt = inner[..x_pos]
+                            .trim()
+                            .parse::<u32>()
+                            .map_err(|_| format!("Invalid array alloca count: {line}"))?;
+                        let ew = parse_type_width(inner[x_pos + 1..].trim())?;
+                        cnt.saturating_mul(((ew as u32) + 7) / 8)
+                    } else {
+                        let width = parse_type_width(ty_str)?;
+                        ((width as u32) + 7) / 8
+                    };
+                    let mut align = bytes.min(8).max(1);
                     for cp in &comma_parts[1..] {
                         if let Some(a_str) = cp.strip_prefix("align ") {
                             if let Ok(a_val) = a_str.trim().parse::<u32>() {
@@ -509,6 +548,74 @@ fn parse_function_blocks(
                         }
                     }
                     cur_stmts.push(IrStmt::Alloca { dst, bytes, align });
+                }
+                "getelementptr" => {
+                    let after_gep = rhs["getelementptr".len()..].trim();
+                    let comma_parts: Vec<&str> =
+                        after_gep.split(',').map(|s| s.trim()).collect();
+                    if comma_parts.len() < 3 {
+                        return Err(format!("Malformed getelementptr: {line}"));
+                    }
+                    let c0_toks: Vec<&str> = comma_parts[0].split_whitespace().collect();
+                    let c0_rem = strip_modifier_tokens(&c0_toks);
+                    let base_ty = c0_rem.join(" ");
+                    let ptr_toks: Vec<&str> = comma_parts[1].split_whitespace().collect();
+                    let base_ptr = ptr_toks
+                        .last()
+                        .ok_or_else(|| format!("Missing base ptr in getelementptr: {line}"))?
+                        .to_string();
+
+                    let (elem_bytes, idx_part) =
+                        if base_ty.starts_with('[') && base_ty.ends_with(']') {
+                            if comma_parts.len() != 4 {
+                                return Err(format!(
+                                    "Unsupported multi-index array getelementptr: {line}"
+                                ));
+                            }
+                            let idx0_toks: Vec<&str> =
+                                comma_parts[2].split_whitespace().collect();
+                            let idx0_val = idx0_toks.last().copied().unwrap_or("");
+                            if idx0_val != "0" {
+                                return Err(format!(
+                                    "Non-zero outer index in array getelementptr: {line}"
+                                ));
+                            }
+                            let inner = &base_ty[1..base_ty.len() - 1];
+                            let x_pos = inner
+                                .find('x')
+                                .ok_or_else(|| format!("Malformed array GEP type: {line}"))?;
+                            let ew = parse_type_width(inner[x_pos + 1..].trim())?;
+                            if ew < 8 || (ew % 8) != 0 {
+                                return Err(format!("Sub-byte GEP element width: {line}"));
+                            }
+                            ((ew / 8) as u64, comma_parts[3])
+                        } else {
+                            if comma_parts.len() != 3 {
+                                return Err(format!(
+                                    "Struct/multi-index getelementptr unsupported in VM: {line}"
+                                ));
+                            }
+                            let ew = parse_type_width(&base_ty)?;
+                            if ew < 8 || (ew % 8) != 0 {
+                                return Err(format!("Sub-byte GEP element width: {line}"));
+                            }
+                            ((ew / 8) as u64, comma_parts[2])
+                        };
+
+                    let idx_toks_raw: Vec<&str> = idx_part.split_whitespace().collect();
+                    let idx_toks = strip_modifier_tokens(&idx_toks_raw);
+                    if idx_toks.len() < 2 {
+                        return Err(format!("Malformed GEP index operand: {line}"));
+                    }
+                    let idx_width = parse_type_width(idx_toks[0])?;
+                    let idx_op = idx_toks.last().unwrap().to_string();
+                    cur_stmts.push(IrStmt::Gep {
+                        dst,
+                        base_ptr,
+                        elem_bytes,
+                        idx_width,
+                        idx_op,
+                    });
                 }
                 "load" => {
                     let after_load = rhs["load".len()..].trim();
@@ -527,7 +634,26 @@ fn parse_function_blocks(
                     cur_stmts.push(IrStmt::Load { dst, width, ptr_op });
                 }
                 "tail" | "musttail" | "notail" | "call" => {
-                    // Check for @llvm.abs / smax / smin / umax / umin
+                    // Support empty inline asm compiler barriers: `call <ty> asm "", "=r,0,..."(<ty> %src)`
+                    if rhs.contains(" asm ") && rhs.contains(" \"\", ") {
+                        let open_p = rhs
+                            .rfind('(')
+                            .ok_or_else(|| format!("Malformed inline asm barrier: {line}"))?;
+                        let close_p = rhs[open_p..]
+                            .find(')')
+                            .ok_or_else(|| format!("Unclosed inline asm barrier: {line}"))?
+                            + open_p;
+                        let arg_inside = rhs[open_p + 1..close_p].trim();
+                        let toks: Vec<&str> = arg_inside.split_whitespace().collect();
+                        if toks.len() < 2 {
+                            return Err(format!("Malformed inline asm barrier operand: {line}"));
+                        }
+                        let width = parse_type_width(toks[0])?;
+                        let src = toks.last().unwrap().trim_end_matches(',').to_string();
+                        cur_stmts.push(IrStmt::Freeze { dst, width, src });
+                        continue;
+                    }
+                    // Check for @llvm.abs / smax / smin / umax / umin / fshl / fshr / bswap
                     let at_idx = rhs
                         .find("@llvm.")
                         .ok_or_else(|| format!("Unsupported call in VM lowering: {line}"))?;
@@ -536,40 +662,93 @@ fn parse_function_blocks(
                         .find('(')
                         .ok_or_else(|| format!("Malformed intrinsic call: {line}"))?;
                     let intr_name = &after_at[..open_p];
-                    let kind = if intr_name.starts_with("abs.") {
-                        "abs"
-                    } else if intr_name.starts_with("smax.") {
-                        "smax"
-                    } else if intr_name.starts_with("smin.") {
-                        "smin"
-                    } else if intr_name.starts_with("umax.") {
-                        "umax"
-                    } else if intr_name.starts_with("umin.") {
-                        "umin"
-                    } else {
-                        return Err(format!("Unsupported LLVM intrinsic: @llvm.{intr_name}"));
-                    };
                     let close_p = after_at[open_p..]
                         .find(')')
                         .ok_or_else(|| format!("Unclosed intrinsic call args: {line}"))?
                         + open_p;
                     let args_inside = &after_at[open_p + 1..close_p];
                     let arg_parts: Vec<&str> = args_inside.split(',').map(|s| s.trim()).collect();
-                    if arg_parts.len() < 2 {
-                        return Err(format!("Malformed intrinsic args: {line}"));
+
+                    if intr_name.starts_with("fshl.") || intr_name.starts_with("fshr.") {
+                        if arg_parts.len() < 3 {
+                            return Err(format!("Malformed funnel shift args: {line}"));
+                        }
+                        let a0_toks: Vec<&str> = arg_parts[0].split_whitespace().collect();
+                        let a1_toks: Vec<&str> = arg_parts[1].split_whitespace().collect();
+                        let a2_toks: Vec<&str> = arg_parts[2].split_whitespace().collect();
+                        let width = parse_type_width(a0_toks[0])?;
+                        let a = a0_toks.last().unwrap().to_string();
+                        let b = a1_toks.last().unwrap().to_string();
+                        let s = a2_toks.last().unwrap().to_string();
+                        cur_stmts.push(IrStmt::FunnelShift {
+                            dst,
+                            is_left: intr_name.starts_with("fshl."),
+                            width,
+                            a,
+                            b,
+                            s,
+                        });
+                    } else if intr_name.starts_with("bswap.") {
+                        if arg_parts.is_empty() {
+                            return Err(format!("Malformed bswap args: {line}"));
+                        }
+                        let a0_toks: Vec<&str> = arg_parts[0].split_whitespace().collect();
+                        let width = parse_type_width(a0_toks[0])?;
+                        let src = a0_toks.last().unwrap().to_string();
+                        cur_stmts.push(IrStmt::Bswap { dst, width, src });
+                    } else if intr_name.starts_with("ctlz.")
+                        || intr_name.starts_with("cttz.")
+                        || intr_name.starts_with("ctpop.")
+                    {
+                        if arg_parts.is_empty() {
+                            return Err(format!("Malformed bit-count intrinsic args: {line}"));
+                        }
+                        let a0_toks: Vec<&str> = arg_parts[0].split_whitespace().collect();
+                        let width = parse_type_width(a0_toks[0])?;
+                        let src = a0_toks.last().unwrap().to_string();
+                        let kind = if intr_name.starts_with("ctlz.") {
+                            "ctlz"
+                        } else if intr_name.starts_with("cttz.") {
+                            "cttz"
+                        } else {
+                            "ctpop"
+                        };
+                        cur_stmts.push(IrStmt::BitCount {
+                            dst,
+                            kind: kind.to_string(),
+                            width,
+                            src,
+                        });
+                    } else {
+                        let kind = if intr_name.starts_with("abs.") {
+                            "abs"
+                        } else if intr_name.starts_with("smax.") {
+                            "smax"
+                        } else if intr_name.starts_with("smin.") {
+                            "smin"
+                        } else if intr_name.starts_with("umax.") {
+                            "umax"
+                        } else if intr_name.starts_with("umin.") {
+                            "umin"
+                        } else {
+                            return Err(format!("Unsupported LLVM intrinsic: @llvm.{intr_name}"));
+                        };
+                        if arg_parts.len() < 2 {
+                            return Err(format!("Malformed intrinsic args: {line}"));
+                        }
+                        let a0_toks: Vec<&str> = arg_parts[0].split_whitespace().collect();
+                        let a1_toks: Vec<&str> = arg_parts[1].split_whitespace().collect();
+                        let width = parse_type_width(a0_toks[0])?;
+                        let a = a0_toks.last().unwrap().to_string();
+                        let b = a1_toks.last().unwrap().to_string();
+                        cur_stmts.push(IrStmt::MinMaxIntrinsic {
+                            dst,
+                            kind: kind.to_string(),
+                            width,
+                            a,
+                            b,
+                        });
                     }
-                    let a0_toks: Vec<&str> = arg_parts[0].split_whitespace().collect();
-                    let a1_toks: Vec<&str> = arg_parts[1].split_whitespace().collect();
-                    let width = parse_type_width(a0_toks[0])?;
-                    let a = a0_toks.last().unwrap().to_string();
-                    let b = a1_toks.last().unwrap().to_string();
-                    cur_stmts.push(IrStmt::MinMaxIntrinsic {
-                        dst,
-                        kind: kind.to_string(),
-                        width,
-                        a,
-                        b,
-                    });
                 }
                 _ => return Err(format!("Unsupported LLVM instruction in VM lowerer: {line}")),
             }
@@ -755,7 +934,11 @@ pub fn lower_single_llvm_function_body(
                 | IrStmt::Cast { dst, .. }
                 | IrStmt::Freeze { dst, .. }
                 | IrStmt::Load { dst, .. }
-                | IrStmt::MinMaxIntrinsic { dst, .. } => Some(dst),
+                | IrStmt::MinMaxIntrinsic { dst, .. }
+                | IrStmt::FunnelShift { dst, .. }
+                | IrStmt::Bswap { dst, .. }
+                | IrStmt::BitCount { dst, .. }
+                | IrStmt::Gep { dst, .. } => Some(dst),
                 _ => None,
             };
             if let Some(dst) = dst_opt {
@@ -999,6 +1182,280 @@ pub fn lower_single_llvm_function_body(
                         pop_to(&mut emitter, dst)?;
                     }
                 }
+                IrStmt::FunnelShift {
+                    dst,
+                    is_left,
+                    width,
+                    a,
+                    b,
+                    s,
+                } => {
+                    let w64 = *width as u64;
+                    if !s.trim().starts_with('%') {
+                        let sh = parse_const_u64(s, *width)? % w64;
+                        if sh == 0 {
+                            push_operand(&mut emitter, if *is_left { a } else { b }, *width)?;
+                            emitter.emit8(OP_TRUNC);
+                            emitter.emit8(*width);
+                        } else if *is_left {
+                            push_operand(&mut emitter, a, *width)?;
+                            emitter.emit_push_imm(sh);
+                            emitter.emit8(OP_SHL);
+                            emitter.emit8(*width);
+                            push_operand(&mut emitter, b, *width)?;
+                            emitter.emit_push_imm(w64 - sh);
+                            emitter.emit8(OP_LSHR);
+                            emitter.emit8(*width);
+                            emitter.emit8(OP_OR);
+                            emitter.emit8(*width);
+                        } else {
+                            push_operand(&mut emitter, b, *width)?;
+                            emitter.emit_push_imm(sh);
+                            emitter.emit8(OP_LSHR);
+                            emitter.emit8(*width);
+                            push_operand(&mut emitter, a, *width)?;
+                            emitter.emit_push_imm(w64 - sh);
+                            emitter.emit8(OP_SHL);
+                            emitter.emit8(*width);
+                            emitter.emit8(OP_OR);
+                            emitter.emit8(*width);
+                        }
+                        pop_to(&mut emitter, dst)?;
+                    } else {
+                        // cond: (s % width) == 0
+                        push_operand(&mut emitter, s, *width)?;
+                        emitter.emit_push_imm(w64);
+                        emitter.emit8(OP_UREM);
+                        emitter.emit8(*width);
+                        emitter.emit_push_imm(0);
+                        emitter.emit8(OP_ICMP_EQ);
+                        emitter.emit8(*width);
+
+                        // true arm (sh == 0): a for fshl, b for fshr (masked to width)
+                        push_operand(&mut emitter, if *is_left { a } else { b }, *width)?;
+                        emitter.emit8(OP_TRUNC);
+                        emitter.emit8(*width);
+
+                        // false arm (sh != 0)
+                        if *is_left {
+                            push_operand(&mut emitter, a, *width)?;
+                            push_operand(&mut emitter, s, *width)?;
+                            emitter.emit_push_imm(w64);
+                            emitter.emit8(OP_UREM);
+                            emitter.emit8(*width);
+                            emitter.emit8(OP_SHL);
+                            emitter.emit8(*width);
+
+                            push_operand(&mut emitter, b, *width)?;
+                            emitter.emit_push_imm(w64);
+                            push_operand(&mut emitter, s, *width)?;
+                            emitter.emit_push_imm(w64);
+                            emitter.emit8(OP_UREM);
+                            emitter.emit8(*width);
+                            emitter.emit8(OP_SUB);
+                            emitter.emit8(*width);
+                            emitter.emit8(OP_LSHR);
+                            emitter.emit8(*width);
+                        } else {
+                            push_operand(&mut emitter, b, *width)?;
+                            push_operand(&mut emitter, s, *width)?;
+                            emitter.emit_push_imm(w64);
+                            emitter.emit8(OP_UREM);
+                            emitter.emit8(*width);
+                            emitter.emit8(OP_LSHR);
+                            emitter.emit8(*width);
+
+                            push_operand(&mut emitter, a, *width)?;
+                            emitter.emit_push_imm(w64);
+                            push_operand(&mut emitter, s, *width)?;
+                            emitter.emit_push_imm(w64);
+                            emitter.emit8(OP_UREM);
+                            emitter.emit8(*width);
+                            emitter.emit8(OP_SUB);
+                            emitter.emit8(*width);
+                            emitter.emit8(OP_SHL);
+                            emitter.emit8(*width);
+                        }
+                        emitter.emit8(OP_OR);
+                        emitter.emit8(*width);
+
+                        emitter.emit8(OP_SELECT);
+                        pop_to(&mut emitter, dst)?;
+                    }
+                }
+                IrStmt::Bswap { dst, width, src } => {
+                    let nbytes = (*width / 8) as usize;
+                    if !matches!(nbytes, 2 | 4 | 8) {
+                        return Err(format!("Unsupported bswap width: {width}"));
+                    }
+                    for k in 0..nbytes {
+                        push_operand(&mut emitter, src, *width)?;
+                        if k > 0 {
+                            emitter.emit_push_imm((8 * k) as u64);
+                            emitter.emit8(OP_LSHR);
+                            emitter.emit8(*width);
+                        }
+                        emitter.emit_push_imm(0xFF);
+                        emitter.emit8(OP_AND);
+                        emitter.emit8(*width);
+                        let dst_shift = 8 * (nbytes - 1 - k);
+                        if dst_shift > 0 {
+                            emitter.emit_push_imm(dst_shift as u64);
+                            emitter.emit8(OP_SHL);
+                            emitter.emit8(*width);
+                        }
+                        if k > 0 {
+                            emitter.emit8(OP_OR);
+                            emitter.emit8(*width);
+                        }
+                    }
+                    pop_to(&mut emitter, dst)?;
+                }
+                IrStmt::BitCount {
+                    dst,
+                    kind,
+                    width,
+                    src,
+                } => {
+                    if !matches!(*width, 8 | 16 | 32 | 64) {
+                        return Err(format!("Unsupported bit-count width: {width}"));
+                    }
+                    let &r = reg_map
+                        .get(dst)
+                        .ok_or_else(|| format!("Unknown destination register: {dst}"))?;
+                    let wmask = if *width >= 64 {
+                        u64::MAX
+                    } else {
+                        (1u64 << *width) - 1
+                    };
+                    push_operand(&mut emitter, src, *width)?;
+                    emitter.emit8(OP_TRUNC);
+                    emitter.emit8(*width);
+                    emitter.emit8(OP_POP_REG);
+                    emitter.emit8(r);
+
+                    if kind == "ctlz" {
+                        for sh in [1u64, 2, 4, 8, 16, 32] {
+                            if sh < (*width as u64) {
+                                emitter.emit8(OP_PUSH_REG);
+                                emitter.emit8(r);
+                                emitter.emit8(OP_PUSH_REG);
+                                emitter.emit8(r);
+                                emitter.emit_push_imm(sh);
+                                emitter.emit8(OP_LSHR);
+                                emitter.emit8(64);
+                                emitter.emit8(OP_OR);
+                                emitter.emit8(64);
+                                emitter.emit8(OP_POP_REG);
+                                emitter.emit8(r);
+                            }
+                        }
+                    } else if kind == "cttz" {
+                        emitter.emit8(OP_PUSH_REG);
+                        emitter.emit8(r);
+                        emitter.emit_push_imm(wmask);
+                        emitter.emit8(OP_XOR);
+                        emitter.emit8(64);
+                        emitter.emit8(OP_PUSH_REG);
+                        emitter.emit8(r);
+                        emitter.emit_push_imm(1);
+                        emitter.emit8(OP_SUB);
+                        emitter.emit8(64);
+                        emitter.emit8(OP_AND);
+                        emitter.emit8(64);
+                        emitter.emit8(OP_TRUNC);
+                        emitter.emit8(*width);
+                        emitter.emit8(OP_POP_REG);
+                        emitter.emit8(r);
+                    }
+
+                    // SWAR 64-bit popcount on regs[r]
+                    emitter.emit8(OP_PUSH_REG);
+                    emitter.emit8(r);
+                    emitter.emit8(OP_PUSH_REG);
+                    emitter.emit8(r);
+                    emitter.emit_push_imm(1);
+                    emitter.emit8(OP_LSHR);
+                    emitter.emit8(64);
+                    emitter.emit_push_imm(0x5555_5555_5555_5555);
+                    emitter.emit8(OP_AND);
+                    emitter.emit8(64);
+                    emitter.emit8(OP_SUB);
+                    emitter.emit8(64);
+                    emitter.emit8(OP_POP_REG);
+                    emitter.emit8(r);
+
+                    emitter.emit8(OP_PUSH_REG);
+                    emitter.emit8(r);
+                    emitter.emit_push_imm(0x3333_3333_3333_3333);
+                    emitter.emit8(OP_AND);
+                    emitter.emit8(64);
+                    emitter.emit8(OP_PUSH_REG);
+                    emitter.emit8(r);
+                    emitter.emit_push_imm(2);
+                    emitter.emit8(OP_LSHR);
+                    emitter.emit8(64);
+                    emitter.emit_push_imm(0x3333_3333_3333_3333);
+                    emitter.emit8(OP_AND);
+                    emitter.emit8(64);
+                    emitter.emit8(OP_ADD);
+                    emitter.emit8(64);
+                    emitter.emit8(OP_POP_REG);
+                    emitter.emit8(r);
+
+                    emitter.emit8(OP_PUSH_REG);
+                    emitter.emit8(r);
+                    emitter.emit8(OP_PUSH_REG);
+                    emitter.emit8(r);
+                    emitter.emit_push_imm(4);
+                    emitter.emit8(OP_LSHR);
+                    emitter.emit8(64);
+                    emitter.emit8(OP_ADD);
+                    emitter.emit8(64);
+                    emitter.emit_push_imm(0x0F0F_0F0F_0F0F_0F0F);
+                    emitter.emit8(OP_AND);
+                    emitter.emit8(64);
+                    emitter.emit_push_imm(0x0101_0101_0101_0101);
+                    emitter.emit8(OP_MUL);
+                    emitter.emit8(64);
+                    emitter.emit_push_imm(56);
+                    emitter.emit8(OP_LSHR);
+                    emitter.emit8(64);
+                    emitter.emit8(OP_POP_REG);
+                    emitter.emit8(r);
+
+                    if kind == "ctlz" {
+                        emitter.emit_push_imm(*width as u64);
+                        emitter.emit8(OP_PUSH_REG);
+                        emitter.emit8(r);
+                        emitter.emit8(OP_SUB);
+                        emitter.emit8(*width);
+                        emitter.emit8(OP_POP_REG);
+                        emitter.emit8(r);
+                    }
+                }
+                IrStmt::Gep {
+                    dst,
+                    base_ptr,
+                    elem_bytes,
+                    idx_width,
+                    idx_op,
+                } => {
+                    push_operand(&mut emitter, base_ptr, 64)?;
+                    push_operand(&mut emitter, idx_op, *idx_width)?;
+                    if *idx_width < 64 {
+                        emitter.emit8(OP_SEXT);
+                        emitter.emit8(*idx_width);
+                    }
+                    if *elem_bytes > 1 {
+                        emitter.emit_push_imm(*elem_bytes);
+                        emitter.emit8(OP_MUL);
+                        emitter.emit8(64);
+                    }
+                    emitter.emit8(OP_ADD);
+                    emitter.emit8(64);
+                    pop_to(&mut emitter, dst)?;
+                }
                 IrStmt::Ret(None) => {
                     emitter.emit8(OP_RET_VOID);
                 }
@@ -1138,15 +1595,17 @@ pub fn lower_llvm_module_functions(
                 let fn_idx = lowered_count as u64;
                 lowered_count += 1;
 
-                let mut key = seed
-                    .wrapping_add(0x9E37_79B9_7F4A_7C15u64.wrapping_mul(fn_idx + 1));
-                key = (key ^ (key >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-                key = (key ^ (key >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-                key ^= key >> 31;
+                let mut kmat = [0u8; 40];
+                kmat[0..24].copy_from_slice(b"ANTIREA_LLVM_BC_KEY_V16!");
+                kmat[24..32].copy_from_slice(&seed.to_le_bytes());
+                kmat[32..40].copy_from_slice(&fn_idx.to_le_bytes());
+                let digest = crate::sha256_bytes(&kmat);
+                let mut key = u64::from_le_bytes(digest[0..8].try_into().unwrap());
                 if key == 0 {
-                    key = 0x4A72_9E37_79B9_7F4B;
+                    key = u64::from_le_bytes(digest[8..16].try_into().unwrap()) | 1;
                 }
-                let suffix = format!("{}", ((key as u32) & 0x7FFF_FFFF) + (fn_idx as u32) * 997);
+                let suffix_word = u32::from_le_bytes(digest[16..20].try_into().unwrap());
+                let suffix = format!("{}", (suffix_word & 0x7FFF_FFFF) + (fn_idx as u32) * 997);
 
                 let enc_bc: Vec<u8> = plain_bc
                     .iter()

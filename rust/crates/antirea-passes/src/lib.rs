@@ -263,7 +263,11 @@ impl ChaCha20Csprng {
     }
 
     pub fn next_rot(&mut self) -> u32 {
-        ((self.next_u64() % 61) as u32) + 1
+        const SAFE_V17_ROTS: [u32; 24] = [
+            3, 5, 7, 9, 13, 15, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 49, 55,
+            57, 59,
+        ];
+        SAFE_V17_ROTS[(self.next_u64() as usize) % SAFE_V17_ROTS.len()]
     }
 }
 
@@ -277,7 +281,31 @@ pub fn mod_inv_u64(odd: u64) -> u64 {
     x
 }
 
+pub fn has_ascii_run_slice(bytes: &[u8], min_run: usize) -> bool {
+    let mut run = 0usize;
+    for &b in bytes {
+        if (0x20..=0x7e).contains(&b) {
+            run += 1;
+            if run >= min_run {
+                return true;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    false
+}
+
+pub fn has_printable_ascii_run(v: u64, min_run: usize) -> bool {
+    has_ascii_run_slice(&v.to_le_bytes(), min_run)
+        || has_ascii_run_slice(&v.to_be_bytes(), min_run)
+        || has_ascii_run_slice(&v.wrapping_neg().to_le_bytes(), min_run)
+}
+
 fn is_safe_literal(v: u64) -> bool {
+    if v >= 0x1000 && has_printable_ascii_run(v, 3) {
+        return false;
+    }
     let s_hex = format!("{v:016x}");
     let s_dec = format!("{v}");
     for &f in FORBIDDEN_CONSTANTS {
@@ -403,10 +431,28 @@ fn solve_transition(
     }
 }
 
+fn cluster_index_from_tok(
+    tok: u64,
+    cluster_mask: u64,
+    cluster_rot_a: u32,
+    cluster_rot_b: u32,
+    plain_cluster_lut: &[u8; 256],
+) -> usize {
+    let x = tok
+        ^ tok.rotate_right(cluster_rot_a)
+        ^ tok.rotate_left(cluster_rot_b)
+        ^ cluster_mask;
+    let idx = (((x >> 37) ^ (x >> 19) ^ (x >> 5) ^ x) & 0xff) as usize;
+    plain_cluster_lut[idx] as usize
+}
+
 fn draw_cluster_token(
     rng: &mut SplitMix64,
     cluster_idx: usize,
     cluster_mask: u64,
+    cluster_rot_a: u32,
+    cluster_rot_b: u32,
+    plain_cluster_lut: &[u8; 256],
     used: &mut BTreeSet<u64>,
 ) -> u64 {
     loop {
@@ -414,8 +460,13 @@ fn draw_cluster_token(
         if candidate == 0 || !is_safe_literal(candidate) || used.contains(&candidate) {
             continue;
         }
-        let c = ((candidate ^ candidate.rotate_right(19) ^ candidate.rotate_left(7) ^ cluster_mask)
-            & 15) as usize;
+        let c = cluster_index_from_tok(
+            candidate,
+            cluster_mask,
+            cluster_rot_a,
+            cluster_rot_b,
+            plain_cluster_lut,
+        );
         if c == cluster_idx {
             used.insert(candidate);
             return candidate;
@@ -431,9 +482,9 @@ fn emit_const_expr(val: u64, rng: &mut SplitMix64) -> String {
     )
 }
 
-fn emit_step_call(tr: &TransitionSpec) -> String {
+fn emit_step_call(tr: &TransitionSpec, arm_bias: u8) -> String {
     format!(
-        "ctx.step_transition(tok, {}u32, {}u64, {}u64, {}u64, {}u64, {}u64, {}u8)",
+        "ctx.step_transition(tok, {}u32, {}u64, {}u64, {}u64, {}u64, {}u64, {}u8, {arm_bias}u8)",
         tr.rot, tr.delta_even, tr.mul_even, tr.delta_odd, tr.mul_odd, tr.site_salt, tr.mode
     )
 }
@@ -532,6 +583,7 @@ fn rewrite_core_ir(
     caller_k2: u64,
     caller_k3: u64,
     caller_post_mul: u64,
+    caller_sh: u32,
 ) -> Result<String, String> {
     let bc_marker = format!("_vm_bc_{suffix} =");
     let key_marker = format!("_vm_key_{suffix} =");
@@ -572,10 +624,11 @@ fn rewrite_core_ir(
     let k3_i64 = caller_k3 as i64;
     let pm_i64 = caller_post_mul as i64;
 
+    let _ = caller_sh;
     let mut out = String::new();
     out.push_str(&joined[..=brace_open]);
     out.push_str(&format!(
-        "\nentry:\n  %vm.st = alloca [4 x i64], align 16\n  %vm.p0 = getelementptr inbounds [4 x i64], ptr %vm.st, i64 0, i64 0\n  %vm.p1 = getelementptr inbounds [4 x i64], ptr %vm.st, i64 0, i64 1\n  %vm.p2 = getelementptr inbounds [4 x i64], ptr %vm.st, i64 0, i64 2\n  %vm.p3 = getelementptr inbounds [4 x i64], ptr %vm.st, i64 0, i64 3\n  %vm.a0 = zext i32 %0 to i64\n  %vm.a1 = zext i32 %1 to i64\n  %vm.x0 = xor i64 %vm.a0, {k0_i64}\n  %vm.s0 = mul i64 %vm.x0, {k1_i64}\n  %vm.x1 = xor i64 %vm.a1, {k1_i64}\n  %vm.s1 = mul i64 %vm.x1, {k0_i64}\n  %vm.sum = add i64 %vm.a0, %vm.a1\n  %vm.s2 = xor i64 %vm.sum, {k2_i64}\n  %vm.hi1 = shl i64 %vm.a1, 32\n  %vm.pk = or i64 %vm.a0, %vm.hi1\n  %vm.s3 = add i64 %vm.pk, {k3_i64}\n  store volatile i64 %vm.s0, ptr %vm.p0, align 8\n  store volatile i64 %vm.s1, ptr %vm.p1, align 8\n  store volatile i64 %vm.s2, ptr %vm.p2, align 8\n  store volatile i64 %vm.s3, ptr %vm.p3, align 8\n  %vm.arg1 = xor i32 %1, %0\n  %vm.raw = call i64 @{dispatch_symbol}(i32 noundef %0, i32 noundef %vm.arg1, ptr noundef %vm.p0)\n  %vm.post0 = load volatile i64, ptr %vm.p0, align 8\n  %vm.post1 = load volatile i64, ptr %vm.p1, align 8\n  %vm.post2 = load volatile i64, ptr %vm.p2, align 8\n  %vm.m0 = mul i64 %vm.post0, {pm_i64}\n  %vm.x12 = xor i64 %vm.post2, %vm.post1\n  %vm.cmask = add i64 %vm.m0, %vm.x12\n  %vm.result = xor i64 %vm.raw, %vm.cmask\n  ret i64 %vm.result\n}}"
+        "\nentry:\n  %vm.st = alloca [4 x i64], align 16\n  %vm.p0 = getelementptr inbounds [4 x i64], ptr %vm.st, i64 0, i64 0\n  %vm.p1 = getelementptr inbounds [4 x i64], ptr %vm.st, i64 0, i64 1\n  %vm.p2 = getelementptr inbounds [4 x i64], ptr %vm.st, i64 0, i64 2\n  %vm.p3 = getelementptr inbounds [4 x i64], ptr %vm.st, i64 0, i64 3\n  %vm.a0 = zext i32 %0 to i64\n  %vm.a1 = zext i32 %1 to i64\n  %vm.x0 = xor i64 %vm.a0, {k0_i64}\n  %vm.s0 = mul i64 %vm.x0, {k1_i64}\n  %vm.x1 = xor i64 %vm.a1, {k1_i64}\n  %vm.s1 = mul i64 %vm.x1, {k0_i64}\n  %vm.sum = add i64 %vm.a0, %vm.a1\n  %vm.s2 = xor i64 %vm.sum, {k2_i64}\n  %vm.m_a0 = mul i64 %vm.a0, {k3_i64}\n  %vm.m_a1 = mul i64 %vm.a1, {k2_i64}\n  %vm.pk = xor i64 %vm.m_a0, %vm.m_a1\n  %vm.s3 = add i64 %vm.pk, {k0_i64}\n  store volatile i64 %vm.s0, ptr %vm.p0, align 8\n  store volatile i64 %vm.s1, ptr %vm.p1, align 8\n  store volatile i64 %vm.s2, ptr %vm.p2, align 8\n  store volatile i64 %vm.s3, ptr %vm.p3, align 8\n  %vm.arg1 = xor i32 %1, %0\n  %vm.raw = call i64 @{dispatch_symbol}(i32 noundef %0, i32 noundef %vm.arg1, ptr noundef %vm.p0)\n  %vm.post0 = load volatile i64, ptr %vm.p0, align 8\n  %vm.post1 = load volatile i64, ptr %vm.p1, align 8\n  %vm.post2 = load volatile i64, ptr %vm.p2, align 8\n  %vm.m0 = mul i64 %vm.post0, {pm_i64}\n  %vm.x12 = xor i64 %vm.post2, %vm.post1\n  %vm.cmask = add i64 %vm.m0, %vm.x12\n  %vm.result = xor i64 %vm.raw, %vm.cmask\n  ret i64 %vm.result\n}}"
     ));
     out.push_str(&joined[brace_close + 2..]);
     Ok(out)
@@ -596,7 +649,21 @@ pub fn generate_rust_defense(
     }
     let tag = format!("{:016x}", public_tag);
     let dispatcher_symbol = format!("antirea_dispatch_{tag}");
-    let num_clusters = 16usize;
+    const CLUSTER_COUNT_CHOICES: [usize; 8] = [12, 13, 14, 15, 17, 18, 19, 20];
+    let num_clusters = CLUSTER_COUNT_CHOICES[(rng.next_u64() as usize) & 7usize];
+    let _cluster_mix_mul = draw_safe_odd_u64(&mut rng);
+    let cluster_rot_a = rng.next_rot();
+    let cluster_rot_b = rng.next_rot();
+    let mut clut_rng = rng.derive_stream(b"antirea-v17-cluster-lut");
+    let clut_off = (clut_rng.next_u64() as usize) % num_clusters;
+    let mut plain_cluster_lut = [0u8; 256];
+    for i in 0..256 {
+        plain_cluster_lut[i] = ((i + clut_off) % num_clusters) as u8;
+    }
+    for i in (1..256).rev() {
+        let j = (clut_rng.next_u64() as usize) % (i + 1);
+        plain_cluster_lut.swap(i, j);
+    }
     let cluster_symbols: Vec<String> = (0..num_clusters)
         .map(|i| format!("antirea_cluster_{i}_{tag}"))
         .collect();
@@ -626,7 +693,7 @@ pub fn generate_rust_defense(
         offset_to_idx.insert(inst.offset, idx);
     }
 
-    // V12-M4: Polymorphic bijective .rdata pool parameters (replacing fixed 0xc5 / 53)
+    // V12-M4 + V15-M1: Polymorphic 2-way Feistel-indexed nonlinear .rdata pool parameters
     let rpool_mul = loop {
         let m = (((rng.next_u64() as usize) & 254usize) | 1usize) & 255usize;
         if m >= 5 && m != 197 && m != 255 {
@@ -639,9 +706,23 @@ pub fn generate_rust_defense(
             break a;
         }
     };
+    let rpool_fk0 = ((rng.next_u64() as usize) % 253usize) + 1usize;
+    let rpool_fk1 = loop {
+        let k = ((rng.next_u64() as usize) % 253usize) + 1usize;
+        if k != rpool_fk0 {
+            break k;
+        }
+    };
     let rpool_unmask = draw_safe_odd_u64(&mut rng);
+    const RPOOL_LEN_CHOICES: [usize; 4] = [288, 320, 384, 512];
+    let rpool_len = RPOOL_LEN_CHOICES[(rng.next_u64() as usize) & 3usize];
+    let rpool_tail_mask = (rpool_len - 256usize) - 1usize;
+    let rpool_mix_rot = rng.next_rot();
+    let rpool_w2_rot = rng.next_rot();
+    let fp_tk_rot = rng.next_rot();
+    let vault_vp_rot = rng.next_rot();
 
-    let mut rdata_pool = [0u64; 256];
+    let mut rdata_pool = vec![0u64; rpool_len];
     for w in &mut rdata_pool {
         *w = draw_safe_odd_u64(&mut rng);
     }
@@ -652,45 +733,146 @@ pub fn generate_rust_defense(
         .join(", ");
     let rdata_at = |bank: usize, idx: usize| -> u64 {
         let b = bank & 3usize;
-        let k = b | ((idx & 31usize) << 2);
-        let pos = (k.wrapping_mul(rpool_mul).wrapping_add(rpool_add)) & 255usize;
-        rdata_pool[pos].rotate_left(((b as u32) * 7 + 3) & 63) ^ rpool_unmask
+        let k = (b | ((idx & 31usize) << 2)) ^ rpool_add;
+        let l0 = k & 15usize;
+        let r0 = (k >> 4) & 15usize;
+        let f0 = ((r0.wrapping_add(rpool_fk0 & 15usize)).rotate_left(1) ^ (r0 >> 1)) & 15usize;
+        let l1 = r0;
+        let r1 = l0 ^ f0;
+        let f1 = ((r1 ^ ((rpool_fk0 >> 4) & 15usize)).wrapping_add(r1 << 1)) & 15usize;
+        let pos0 = ((l1 ^ f1) | (r1 << 4)) & 255usize;
+        let pos1 = (pos0.rotate_left(3) ^ rpool_fk1) & 255usize;
+        let pos2 = 256usize + ((pos0 ^ pos1 ^ (b.wrapping_mul(13)) ^ rpool_fk1) & rpool_tail_mask);
+        let w0 = rdata_pool[pos0];
+        let w1 = rdata_pool[pos1];
+        let w2 = rdata_pool[pos2];
+        let rot0 = ((b as u32) * 7 + 3) & 63;
+        let rot1 = ((b as u32) * 11 + 5) & 63;
+        (w0.rotate_left(rot0)
+            .wrapping_add(w1.rotate_right(rot1))
+            .wrapping_add(w2.rotate_left(rpool_w2_rot)))
+            ^ (w0.wrapping_mul(w1 | 1).rotate_left(rpool_mix_rot))
+            ^ rpool_unmask.rotate_left(((b as u32) * 13 + 5) & 63)
     };
     let fp_tk_mix = rdata_at(0, 11)
-        ^ rdata_at(1, 23).rotate_left(17)
+        ^ rdata_at(1, 23).rotate_left(fp_tk_rot)
         ^ rdata_at(2, 7).rotate_right(13)
         ^ rdata_at(3, 19);
 
-    // V14-M1 + V14.2-M1 (Pushan/Syntia/DCA Countermeasure): Encrypted-at-Rest .rdata S-Box Vault & Branchless Continuous Prologue Vault Ratchet
-    let vault_steps = 515usize + (((rng.next_u64() as usize) & 7usize) * 2usize);
-    let (vault_init, vault_step_mul, vault_key, vault_tk_mask) = loop {
+    // V14-M1 + V16-M2 + V18-M2: Encrypted-at-Rest .rdata S-Box Vault & GF(2^9)/GF(2^8) Galois LFSR Prologue
+    const GALOIS9_TAPS: [usize; 16] = [
+        0x108, 0x10d, 0x110, 0x116, 0x119, 0x12c, 0x12f, 0x134,
+        0x137, 0x13b, 0x13e, 0x143, 0x14a, 0x151, 0x152, 0x157,
+    ];
+    const GALOIS8_TAPS: [usize; 16] = [
+        0x8e, 0x95, 0x96, 0xa6, 0xaf, 0xb1, 0xb2, 0xb4,
+        0xb8, 0xc3, 0xc6, 0xd4, 0xe1, 0xe7, 0xf3, 0xfa,
+    ];
+    let galois9_tap = GALOIS9_TAPS[(rng.next_u64() as usize) & 15usize];
+    let galois8_tap = GALOIS8_TAPS[(rng.next_u64() as usize) & 15usize];
+    let vault_steps = 523usize + (((rng.next_u64() as usize) & 15usize) * 3usize);
+    let lut_steps = 263usize + (((rng.next_u64() as usize) & 7usize) * 3usize);
+    let cadence_mask = loop {
+        let target_ones = 10u32 + ((rng.next_u64() as u32) % 5);
+        let mut cm = 0u64;
+        while cm.count_ones() < target_ones {
+            let bit = (rng.next_u64() as u32) & 63;
+            cm |= 1u64 << bit;
+        }
+        if is_safe_literal(cm) && cm != cm.rotate_left(8) && cm != cm.rotate_left(4) {
+            break cm;
+        }
+    };
+    let reshare_sh_raw = 11u32 + (((rng.next_u64() as u32) % 10) * 2);
+    let reshare_sh = if reshare_sh_raw == 17 { 21u32 } else { reshare_sh_raw };
+
+    let (
+        vault_init,
+        vault_step_mul,
+        vault_key,
+        vault_tk_mask,
+        p_init_tok,
+        p_step_add,
+        p_step_mul,
+        p_vault_end_tok,
+    ) = loop {
+        let p_mul = loop {
+            let v = draw_safe_odd_u64(&mut rng);
+            let m = (v & !3u64) | 1u64;
+            if m >= 0x1000 && is_safe_literal(m) {
+                break m;
+            }
+        };
+        let p_add = draw_safe_odd_u64(&mut rng);
+        let p_init = draw_safe_odd_u64(&mut rng);
         let v_init = draw_safe_odd_u64(&mut rng);
         let v_mul = draw_safe_odd_u64(&mut rng);
         let mut acc = v_init;
         let mut tk_mask = 0u64;
-        for step in 0..vault_steps {
-            let vp = rdata_at(step & 3, (step >> 2) & 31);
+        let mut p_tok = p_init;
+        for _ in 0..vault_steps {
+            let bank = ((p_tok >> 11) as usize) & 3usize;
+            let ridx = ((p_tok >> 19) as usize) & 31usize;
+            let vp = rdata_at(bank, ridx);
             acc = acc
                 .rotate_left(13)
                 .wrapping_mul(v_mul | 1)
                 ^ vp
-                ^ (step as u64).wrapping_mul(v_init);
-            let tk_step_delta = acc.rotate_left(((step as u32) & 31) + 1) ^ vp.rotate_right(11);
+                ^ p_tok.wrapping_mul(v_init);
+            let tk_step_delta = acc.rotate_left((((p_tok >> 7) as u32) & 31) + 1) ^ vp.rotate_right(vault_vp_rot);
             tk_mask ^= tk_step_delta;
+            p_tok = p_tok.wrapping_add(p_add).wrapping_mul(p_mul);
         }
-        if is_safe_literal(acc) && is_safe_literal(tk_mask) && acc != seed && tk_mask != seed {
-            break (v_init, v_mul, acc, tk_mask);
+        if is_safe_literal(acc)
+            && is_safe_literal(tk_mask)
+            && is_safe_literal(p_tok)
+            && acc != seed
+            && tk_mask != seed
+            && p_tok != p_init
+        {
+            break (v_init, v_mul, acc, tk_mask, p_init, p_add, p_mul, p_tok);
         }
     };
-    let sbox_vault_salt = draw_safe_odd_u64(&mut rng);
-    let inv_sbox_vault_salt = draw_safe_odd_u64(&mut rng);
-    let hdr_c_mul = draw_safe_odd_u64(&mut rng);
     let vk_sbox_mask = |idx: usize, salt: u64| -> u8 {
         let w = vault_key
             .rotate_left(((idx as u32).wrapping_mul(7) + 3) & 63)
-            .wrapping_add((idx as u64).wrapping_mul(salt | 1));
+            .wrapping_add(((idx as u64) + 1u64).wrapping_mul(salt | 1));
         ((w ^ (w >> 19) ^ (w >> 41)) & 0xff) as u8
     };
+    let sbox_vault_salt = loop {
+        let cand = draw_safe_odd_u64(&mut rng);
+        let enc_bytes: Vec<u8> = sbox
+            .iter()
+            .enumerate()
+            .map(|(i, &b)| b ^ vk_sbox_mask(i, cand))
+            .collect();
+        if !has_ascii_run_slice(&enc_bytes, 4) {
+            break cand;
+        }
+    };
+    let inv_sbox_vault_salt = loop {
+        let cand = draw_safe_odd_u64(&mut rng);
+        let enc_bytes: Vec<u8> = inv_sbox
+            .iter()
+            .enumerate()
+            .map(|(i, &b)| b ^ vk_sbox_mask(i, cand))
+            .collect();
+        if !has_ascii_run_slice(&enc_bytes, 4) {
+            break cand;
+        }
+    };
+    let cluster_lut_salt = loop {
+        let cand = draw_safe_odd_u64(&mut rng);
+        let enc_bytes: Vec<u8> = plain_cluster_lut
+            .iter()
+            .enumerate()
+            .map(|(i, &b)| b ^ vk_sbox_mask(i, cand))
+            .collect();
+        if !has_ascii_run_slice(&enc_bytes, 4) {
+            break cand;
+        }
+    };
+    let hdr_c_mul = draw_safe_odd_u64(&mut rng);
     let sbox_lits = sbox
         .iter()
         .enumerate()
@@ -709,31 +891,159 @@ pub fn generate_rust_defense(
         })
         .collect::<Vec<_>>()
         .join(", ");
+    let cluster_lut_lits = plain_cluster_lut
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| {
+            let enc = b ^ vk_sbox_mask(i, cluster_lut_salt);
+            format!("0x{enc:02x}u8")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut hdr_pair_rots = [0u32; 32];
+    for r in hdr_pair_rots.iter_mut() {
+        *r = rng.next_rot();
+    }
+    let (r_lut_init_tok, r_lut_end_tok) = loop {
+        let r0 = draw_safe_odd_u64(&mut rng);
+        let mut rt = r0;
+        for _ in 0..lut_steps {
+            rt = rt.wrapping_add(p_step_add).wrapping_mul(p_step_mul);
+        }
+        if is_safe_literal(rt) && rt != r0 && rt != seed {
+            break (r0, rt);
+        }
+    };
+    let route_byte_mask = ((rng.next_u64() as u8) & 0xf7u8) | 0x81u8;
+    // V19-M1: Per-build nonlinear index constants for position-coupled VmCtx.route_lut byte masking
+    let route_idx_mul = draw_safe_odd_u64(&mut rng);
+    let route_idx_add = draw_safe_odd_u64(&mut rng);
+    let route_idx_xor = draw_safe_odd_u64(&mut rng);
 
-    // V12-M2: Kerckhoffs per-build polymorphic VmCtx struct layout shuffling & bijective bank permutations
-    let hdr_perm_mul = loop {
+    // V19-M2: Per-build ChaCha20 polymorphic SSE2 pshufd 4-lane bijections & distinct 64-bit shift pairs
+    const SAFE_PSHUFD_PERMS: [i32; 16] = [
+        0x1b, 0x1e, 0x27, 0x2d, 0x36, 0x4b, 0x63, 0x6c,
+        0x72, 0x78, 0x87, 0x8d, 0x93, 0x9c, 0xc6, 0xc9,
+    ];
+    let mut shuf_pool = SAFE_PSHUFD_PERMS;
+    for i in (1..shuf_pool.len()).rev() {
+        let j = (rng.next_u64() as usize) % (i + 1);
+        shuf_pool.swap(i, j);
+    }
+    let (fe_shuf0, fe_shuf1, fe_shuf2, fe_shuf3) = (shuf_pool[0], shuf_pool[1], shuf_pool[2], shuf_pool[3]);
+    let (fe_shuf4, fe_shuf5, fe_shuf6, fe_shuf7, fe_shuf8) =
+        (shuf_pool[4], shuf_pool[5], shuf_pool[6], shuf_pool[7], shuf_pool[8]);
+
+    const SAFE_FE_SHIFTS: [i32; 14] = [3, 5, 6, 7, 9, 12, 13, 14, 15, 19, 21, 23, 25, 27];
+    let mut fe_pairs = [(0i32, 0i32); 4];
+    for m in 0..4 {
+        loop {
+            let sl = SAFE_FE_SHIFTS[(rng.next_u64() as usize) % SAFE_FE_SHIFTS.len()];
+            let sr = SAFE_FE_SHIFTS[(rng.next_u64() as usize) % SAFE_FE_SHIFTS.len()];
+            if sl != sr && !(sl == 7 && sr == 9) && !(sl == 13 && sr == 3) && !(sl == 15 && sr == 5) {
+                if !fe_pairs[..m].contains(&(sl, sr)) {
+                    fe_pairs[m] = (sl, sr);
+                    break;
+                }
+            }
+        }
+    }
+    let ((fe_sl0, fe_sr0), (fe_sl1, fe_sr1), (fe_sl2, fe_sr2), (fe_sl3, fe_sr3)) =
+        (fe_pairs[0], fe_pairs[1], fe_pairs[2], fe_pairs[3]);
+
+    // V19-M3: Per-build upper-bit shift triple (>= 9) for GF(2)-homomorphic full-64-bit hdr_route blinding
+    const SAFE_HR_SHIFTS: [u32; 14] = [9, 13, 15, 19, 21, 23, 25, 27, 29, 31, 35, 37, 41, 45];
+    let mut hr_pool = SAFE_HR_SHIFTS;
+    for i in (1..hr_pool.len()).rev() {
+        let j = (rng.next_u64() as usize) % (i + 1);
+        hr_pool.swap(i, j);
+    }
+    let (hr_sh0, hr_sh1, hr_sh2) = (hr_pool[0], hr_pool[1], hr_pool[2]);
+    let hdr_pair_rots_lits = hdr_pair_rots
+        .iter()
+        .map(|r| format!("{r}u32"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let vr0 = rng.next_rot();
+    let vr1 = rng.next_rot();
+    let vr2 = rng.next_rot();
+    let vr3 = rng.next_rot();
+    let vr4 = rng.next_rot();
+    let vr5 = rng.next_rot();
+    let vr6 = rng.next_rot();
+    let vr7 = rng.next_rot();
+    let vr8 = rng.next_rot();
+    let vr9 = rng.next_rot();
+    let vr10 = rng.next_rot();
+    let vr11 = rng.next_rot();
+    let vr12 = rng.next_rot();
+    let vr13 = rng.next_rot();
+    let vr14 = rng.next_rot();
+    let vr15 = rng.next_rot();
+
+    // V12-M2 + V15-M4: Kerckhoffs per-build polymorphic VmCtx struct layout shuffling & Feistel bank permutations
+    let _hdr_perm_mul = loop {
         let m = (((rng.next_u64() as usize) & 30usize) | 1usize) & 31usize;
         if m >= 3 && m != 31 {
             break m;
         }
     };
-    let hdr_perm_add = ((rng.next_u64() as usize) % 30usize) + 1usize;
-    let arena_perm_mul = loop {
+    let _hdr_perm_add = ((rng.next_u64() as usize) % 30usize) + 1usize;
+    let _arena_perm_mul = loop {
         let m = (((rng.next_u64() as usize) & 510usize) | 1usize) & 511usize;
         if m >= 5 && m != 511 {
             break m;
         }
     };
-    let arena_perm_add = ((rng.next_u64() as usize) % 509usize) + 1usize;
+    let _arena_perm_add = ((rng.next_u64() as usize) % 509usize) + 1usize;
+    let _ = rpool_mul;
+    let hdr_fk0 = ((rng.next_u64() as usize) % 30usize) + 1usize;
+    let hdr_fk1 = loop {
+        let k = ((rng.next_u64() as usize) % 30usize) + 1usize;
+        if k != hdr_fk0 {
+            break k;
+        }
+    };
+    let mut hdr_banks = [0usize, 32usize, 64usize];
+    for i in (1..3).rev() {
+        let j = (rng.next_u64() as usize) % (i + 1);
+        hdr_banks.swap(i, j);
+    }
+    let hdr_bank_a = hdr_banks[0];
+    let hdr_bank_b = hdr_banks[1];
+    let hdr_bank_c = hdr_banks[2];
+    let arena_fk0 = ((rng.next_u64() as usize) % 510usize) + 1usize;
+    let arena_fk1 = loop {
+        let k = ((rng.next_u64() as usize) % 510usize) + 1usize;
+        if k != arena_fk0 {
+            break k;
+        }
+    };
+    const ARENA_EXTRA_CHOICES: [usize; 4] = [64, 128, 192, 256];
+    let arena_extra = ARENA_EXTRA_CHOICES[(rng.next_u64() as usize) & 3usize];
+    let arena_len = 1024usize + arena_extra;
+    let (arena_feistel_base, arena_chaff_base) = if (rng.next_u64() & 1) == 0 {
+        (0usize, 1024usize)
+    } else {
+        (arena_extra, 0usize)
+    };
+    let (arena_bank_a, arena_bank_b) = if (rng.next_u64() & 1) == 0 {
+        (arena_feistel_base, arena_feistel_base + 512usize)
+    } else {
+        (arena_feistel_base + 512usize, arena_feistel_base)
+    };
+    let q_flip = ((rng.next_u64() as usize) & 1usize) << 1;
+    let arg_blind_mask = draw_safe_odd_u64(&mut rng);
     let pad_choices = [8usize, 16usize, 24usize, 32usize];
     let pad_lo_len = pad_choices[(rng.next_u64() as usize) & 3usize];
     let pad_hi_len = pad_choices[(rng.next_u64() as usize) & 3usize];
     let mut vmctx_fields = vec![
-        "    pub arena: [u64; 1024],".to_string(),
+        format!("    pub arena: [u64; {arena_len}],"),
         "    pub frm_a: [u8; 1024],".to_string(),
         "    pub frm_b: [u8; 1024],".to_string(),
         "    pub arg_a: [u64; 8],".to_string(),
         "    pub arg_b: [u64; 8],".to_string(),
+        "    pub route_lut: [u8; 256],".to_string(),
         "    pub hdr: [u64; 96],".to_string(),
         format!("    pub pad_lo: [u64; {pad_lo_len}],"),
         format!("    pub pad_hi: [u64; {pad_hi_len}],"),
@@ -762,6 +1072,19 @@ pub fn generate_rust_defense(
     let caller_k2 = draw_safe_signed(&mut rng);
     let caller_k3 = draw_safe_signed(&mut rng);
     let caller_post_mul = draw_safe_signed(&mut rng);
+    let caller_sh_raw = 19u32 + ((rng.next_u64() as u32) % 25);
+    let caller_sh = if caller_sh_raw == 32 { 37u32 } else { caller_sh_raw };
+
+    const SAFE_PACK_ROTS: [u32; 20] = [
+        5, 7, 9, 15, 19, 21, 23, 25, 27, 29, 31, 35, 37, 39, 41, 43, 45, 49, 55, 59,
+    ];
+    let pack_topo = (rng.next_u64() & 3) as usize;
+    let pack_rot0 = SAFE_PACK_ROTS[(rng.next_u64() as usize) % SAFE_PACK_ROTS.len()];
+    let pack_rot1 = SAFE_PACK_ROTS[(rng.next_u64() as usize) % SAFE_PACK_ROTS.len()];
+    let pack_rot2 = SAFE_PACK_ROTS[(rng.next_u64() as usize) % SAFE_PACK_ROTS.len()];
+    let pack_rot3 = SAFE_PACK_ROTS[(rng.next_u64() as usize) % SAFE_PACK_ROTS.len()];
+    let pack_mul0 = draw_safe_odd_u64(&mut rng);
+    let pack_mul1 = draw_safe_odd_u64(&mut rng);
 
     let tk_s0 = draw_safe_odd_u64(&mut rng);
     let tk_s1 = draw_safe_odd_u64(&mut rng);
@@ -828,47 +1151,6 @@ pub fn generate_rust_defense(
     let mut used_tokens = BTreeSet::new();
     used_tokens.insert(halt_magic);
 
-    // V5-M6: Cross-cluster even/odd aliasing so even and odd tokens of the same instruction live in DIFFERENT clusters!
-    let mut node_cluster_even = Vec::with_capacity(total_nodes);
-    let mut node_cluster_odd = Vec::with_capacity(total_nodes);
-    let mut token_even = Vec::with_capacity(total_nodes);
-    let mut token_odd = Vec::with_capacity(total_nodes);
-
-    for idx in 0..total_nodes {
-        let c_even = (((idx / 2) ^ ((rng.next_u64() as usize) & 15)) + idx) & 15;
-        let c_odd = (c_even + 1 + ((rng.next_u64() as usize) % 15)) & 15;
-        debug_assert_ne!(c_even, c_odd);
-        node_cluster_even.push(c_even);
-        node_cluster_odd.push(c_odd);
-        let te = draw_cluster_token(&mut rng, c_even, cluster_mask, &mut used_tokens);
-        let to = draw_cluster_token(&mut rng, c_odd, cluster_mask, &mut used_tokens);
-        token_even.push(te);
-        token_odd.push(to);
-    }
-
-    // V5-M6: 4-way entry aliasing for node 0 across 4 distinct clusters
-    let c_alt0_even = (node_cluster_even[0] + 4) & 15;
-    let c_alt0_odd = (node_cluster_odd[0] + 4) & 15;
-    let token_alt0_even = draw_cluster_token(&mut rng, c_alt0_even, cluster_mask, &mut used_tokens);
-    let token_alt0_odd = draw_cluster_token(&mut rng, c_alt0_odd, cluster_mask, &mut used_tokens);
-
-    let init_seed_tok_0 = draw_safe_odd_u64(&mut rng);
-    let init_seed_tok_1 = draw_safe_odd_u64(&mut rng);
-    let entry_trans_0 = solve_transition(
-        &mut rng,
-        init_seed_tok_0,
-        token_even[0],
-        token_odd[0],
-        trans_key,
-    );
-    let entry_trans_1 = solve_transition(
-        &mut rng,
-        init_seed_tok_1,
-        token_alt0_even,
-        token_alt0_odd,
-        trans_key,
-    );
-
     // Map live chaff detour nodes to straight-line instructions (every 6th non-branching instruction, including idx=0)
     let mut detour_map: BTreeMap<usize, usize> = BTreeMap::new();
     let mut chaff_targets: Vec<usize> = vec![0usize; chaff_count];
@@ -889,6 +1171,116 @@ pub fn generate_rust_defense(
     for rem in assigned_chaff..chaff_count {
         chaff_targets[rem] = (rem * 7 + 1) % real_count;
     }
+
+    // V5-M6 + V18-M3: Cross-cluster even/odd aliasing (`c_even != c_odd`) with adaptive run-length locality for large graphs
+    let use_run_locality = real_count > 128;
+    let mut node_cluster_even = Vec::with_capacity(total_nodes);
+    let mut node_cluster_odd = Vec::with_capacity(total_nodes);
+    let mut token_even = Vec::with_capacity(total_nodes);
+    let mut token_odd = Vec::with_capacity(total_nodes);
+
+    let mut cur_run_rem = 0usize;
+    let mut cur_c_even = 0usize;
+    let mut cur_c_odd = 1usize;
+    for idx in 0..real_count {
+        if !use_run_locality || cur_run_rem == 0 {
+            cur_c_even = (((idx / 2) ^ (rng.next_u64() as usize)) + idx) % num_clusters;
+            cur_c_odd = (cur_c_even + 1 + ((rng.next_u64() as usize) % (num_clusters - 1))) % num_clusters;
+            cur_run_rem = if use_run_locality {
+                6usize + ((rng.next_u64() as usize) % 5usize)
+            } else {
+                1usize
+            };
+        }
+        cur_run_rem -= 1;
+        debug_assert_ne!(cur_c_even, cur_c_odd);
+        node_cluster_even.push(cur_c_even);
+        node_cluster_odd.push(cur_c_odd);
+    }
+    for chaff_i in 0..chaff_count {
+        let (c_even, c_odd) = if use_run_locality {
+            let tgt = chaff_targets[chaff_i];
+            (node_cluster_even[tgt], node_cluster_odd[tgt])
+        } else {
+            let idx = real_count + chaff_i;
+            let ce = (((idx / 2) ^ (rng.next_u64() as usize)) + idx) % num_clusters;
+            let co = (ce + 1 + ((rng.next_u64() as usize) % (num_clusters - 1))) % num_clusters;
+            (ce, co)
+        };
+        debug_assert_ne!(c_even, c_odd);
+        node_cluster_even.push(c_even);
+        node_cluster_odd.push(c_odd);
+    }
+    for idx in 0..total_nodes {
+        let te = draw_cluster_token(
+            &mut rng,
+            node_cluster_even[idx],
+            cluster_mask,
+            cluster_rot_a,
+            cluster_rot_b,
+            &plain_cluster_lut,
+            &mut used_tokens,
+        );
+        let to = draw_cluster_token(
+            &mut rng,
+            node_cluster_odd[idx],
+            cluster_mask,
+            cluster_rot_a,
+            cluster_rot_b,
+            &plain_cluster_lut,
+            &mut used_tokens,
+        );
+        token_even.push(te);
+        token_odd.push(to);
+    }
+
+    // V5-M6 + V16-M3: 4-way entry aliasing for node 0 across 4 distinct clusters in variable num_clusters
+    let mut c_alt0_even = (node_cluster_even[0] + 3) % num_clusters;
+    while c_alt0_even == node_cluster_even[0] || c_alt0_even == node_cluster_odd[0] {
+        c_alt0_even = (c_alt0_even + 1) % num_clusters;
+    }
+    let mut c_alt0_odd = (node_cluster_odd[0] + 5) % num_clusters;
+    while c_alt0_odd == node_cluster_even[0]
+        || c_alt0_odd == node_cluster_odd[0]
+        || c_alt0_odd == c_alt0_even
+    {
+        c_alt0_odd = (c_alt0_odd + 1) % num_clusters;
+    }
+    let token_alt0_even = draw_cluster_token(
+        &mut rng,
+        c_alt0_even,
+        cluster_mask,
+        cluster_rot_a,
+        cluster_rot_b,
+        &plain_cluster_lut,
+        &mut used_tokens,
+    );
+    let token_alt0_odd = draw_cluster_token(
+        &mut rng,
+        c_alt0_odd,
+        cluster_mask,
+        cluster_rot_a,
+        cluster_rot_b,
+        &plain_cluster_lut,
+        &mut used_tokens,
+    );
+
+    let init_seed_tok_0 = draw_safe_odd_u64(&mut rng);
+    let init_seed_tok_1 = draw_safe_odd_u64(&mut rng);
+    let entry_trans_0 = solve_transition(
+        &mut rng,
+        init_seed_tok_0,
+        token_even[0],
+        token_odd[0],
+        trans_key,
+    );
+    let entry_trans_1 = solve_transition(
+        &mut rng,
+        init_seed_tok_1,
+        token_alt0_even,
+        token_alt0_odd,
+        trans_key,
+    );
 
     // Build cluster match arms across all 16 clusters
     let mut cluster_arms: Vec<String> = vec![String::new(); num_clusters];
@@ -1209,6 +1601,11 @@ pub fn generate_rust_defense(
             }
 
             // Emit control-flow transition
+            let arm_bias: u8 = if use_run_locality {
+                if is_odd_arm { 1u8 } else { 0u8 }
+            } else {
+                2u8
+            };
             match name {
                 "OP_RET" => {
                     let halt_tr =
@@ -1216,7 +1613,7 @@ pub fn generate_rust_defense(
                     let ret_salt = draw_safe_odd_u64(&mut rng);
                     body.push_str(&format!(
                         "let rv = ctx.pop(); let raw_ht = {}; tok = ctx.set_return(rv, raw_ht, {ret_salt}u64, {op_mode}u8);\n",
-                        emit_step_call(&halt_tr)
+                        emit_step_call(&halt_tr, arm_bias)
                     ));
                 }
                 "OP_RET_VOID" => {
@@ -1225,7 +1622,7 @@ pub fn generate_rust_defense(
                     let ret_salt = draw_safe_odd_u64(&mut rng);
                     body.push_str(&format!(
                         "let raw_ht = {}; tok = ctx.set_return(0u64, raw_ht, {ret_salt}u64, {op_mode}u8);\n",
-                        emit_step_call(&halt_tr)
+                        emit_step_call(&halt_tr, arm_bias)
                     ));
                 }
                 "OP_JMP" => {
@@ -1240,7 +1637,7 @@ pub fn generate_rust_defense(
                         token_odd[dst_idx],
                         trans_key,
                     );
-                    body.push_str(&format!("tok = {};\n", emit_step_call(&tr)));
+                    body.push_str(&format!("tok = {};\n", emit_step_call(&tr, arm_bias)));
                 }
                 "OP_JZ" | "OP_JNZ" => {
                     let dst_off = inst.values[0] as u32;
@@ -1265,8 +1662,8 @@ pub fn generate_rust_defense(
                     let cmp_op = if name == "OP_JZ" { "== 0" } else { "!= 0" };
                     body.push_str(&format!(
                         "let cond = ctx.pop();\nif cond {cmp_op} {{\n    tok = {};\n}} else {{\n    tok = {};\n}}\n",
-                        emit_step_call(&tr_taken),
-                        emit_step_call(&tr_fall)
+                        emit_step_call(&tr_taken, arm_bias),
+                        emit_step_call(&tr_fall, arm_bias)
                     ));
                 }
                 _ => {
@@ -1289,8 +1686,8 @@ pub fn generate_rust_defense(
                         let det_salt = draw_safe_odd_u64(&mut rng);
                         body.push_str(&format!(
                             "if ctx.should_detour({det_salt}u64) {{\n    tok = {};\n}} else {{\n    tok = {};\n}}\n",
-                            emit_step_call(&tr_detour),
-                            emit_step_call(&tr_direct)
+                            emit_step_call(&tr_detour, arm_bias),
+                            emit_step_call(&tr_direct, arm_bias)
                         ));
                     } else {
                         let tr = solve_transition(
@@ -1300,7 +1697,7 @@ pub fn generate_rust_defense(
                             token_odd[next_idx],
                             trans_key,
                         );
-                        body.push_str(&format!("tok = {};\n", emit_step_call(&tr)));
+                        body.push_str(&format!("tok = {};\n", emit_step_call(&tr, arm_bias)));
                     }
                 }
             }
@@ -1309,14 +1706,19 @@ pub fn generate_rust_defense(
         }
     }
 
-    // Emit 48 live chaff detour nodes (96 state arms) distributed across the 16 clusters
+    // Emit 48 live chaff detour nodes (96 state arms) distributed across the clusters
     for chaff_i in 0..chaff_count {
         let idx = real_count + chaff_i;
         let next_idx = chaff_targets[chaff_i];
-        for &(c, cur_tok) in &[
-            (node_cluster_even[idx], token_even[idx]),
-            (node_cluster_odd[idx], token_odd[idx]),
+        for &(c, cur_tok, is_odd_arm) in &[
+            (node_cluster_even[idx], token_even[idx], false),
+            (node_cluster_odd[idx], token_odd[idx], true),
         ] {
+            let chaff_bias: u8 = if use_run_locality {
+                if is_odd_arm { 1u8 } else { 0u8 }
+            } else {
+                2u8
+            };
             let tr = solve_transition(
                 &mut rng,
                 cur_tok,
@@ -1330,7 +1732,7 @@ pub fn generate_rust_defense(
             let ch_mode = (rng.next_u64() & 3) as u8;
             cluster_arms[c].push_str(&format!(
                 "            {cur_tok}u64 => {{\n                let fc = {fake_c};\n                ctx.write_chaff({chaff_slot}, fc, {ch_salt}u64, {ch_mode}u8);\n                tok = {};\n            }}\n",
-                emit_step_call(&tr)
+                emit_step_call(&tr, chaff_bias)
             ));
         }
     }
@@ -1349,8 +1751,17 @@ pub fn generate_rust_defense(
         let h_xor = cluster_halt_xors[c];
         let def_salt = draw_safe_odd_u64(&mut rng);
         let out_salt = draw_safe_odd_u64(&mut rng);
+        let abi_const = draw_safe_odd_u64(&mut rng);
+        let abi_kind = (c + (rng.next_u64() as usize)) & 3usize;
         let def_mode = (c & 7) as u8;
-        let max_steps = 3usize + ((c * 5 + 1) & 3usize);
+        let max_steps = if use_run_locality {
+            9usize + ((c * 5 + 1) & 3usize)
+        } else {
+            3usize + ((c * 5 + 1) & 3usize)
+        };
+        let cl_rot0 = rng.next_rot();
+        let cl_rot1 = rng.next_rot();
+        let abi_rot = rng.next_rot();
         let (entry_unwrap_expr, exit_wrap_expr, halt_wrap_expr, caller_wrap_expr, caller_unwrap_expr) = match c & 3 {
             0 => (
                 format!("black_box(masked_tok).wrapping_mul(black_box({in_inv}u64)).wrapping_sub(m_in)"),
@@ -1360,17 +1771,17 @@ pub fn generate_rust_defense(
                 format!("r.wrapping_mul(black_box({out_inv}u64)).wrapping_sub(m_out)"),
             ),
             1 => (
-                format!("(black_box(masked_tok).wrapping_sub(m_in.rotate_left(17)).wrapping_mul(black_box({in_inv}u64))) ^ m_in"),
+                format!("(black_box(masked_tok).wrapping_sub(m_in.rotate_left({cl_rot0}u32)).wrapping_mul(black_box({in_inv}u64))) ^ m_in"),
                 format!("(tok ^ xm).wrapping_mul(black_box({out_mul}u64)).wrapping_sub(xm.rotate_left(13))"),
                 format!("(ctx.halted_token_val() ^ xm).wrapping_mul(black_box({out_mul}u64)).wrapping_sub(xm.rotate_left(13))"),
-                format!("(tok ^ m_in).wrapping_mul(black_box({in_mul}u64)).wrapping_add(m_in.rotate_left(17))"),
+                format!("(tok ^ m_in).wrapping_mul(black_box({in_mul}u64)).wrapping_add(m_in.rotate_left({cl_rot0}u32))"),
                 format!("(r.wrapping_add(m_out.rotate_left(13)).wrapping_mul(black_box({out_inv}u64))) ^ m_out"),
             ),
             2 => (
-                format!("(black_box(masked_tok) ^ m_in.rotate_right(11)).wrapping_mul(black_box({in_inv}u64)).wrapping_add(m_in)"),
+                format!("(black_box(masked_tok) ^ m_in.rotate_right({cl_rot1}u32)).wrapping_mul(black_box({in_inv}u64)).wrapping_add(m_in)"),
                 format!("tok.wrapping_sub(xm).wrapping_mul(black_box({out_mul}u64)) ^ xm.rotate_right(7)"),
                 format!("ctx.halted_token_val().wrapping_sub(xm).wrapping_mul(black_box({out_mul}u64)) ^ xm.rotate_right(7)"),
-                format!("tok.wrapping_sub(m_in).wrapping_mul(black_box({in_mul}u64)) ^ m_in.rotate_right(11)"),
+                format!("tok.wrapping_sub(m_in).wrapping_mul(black_box({in_mul}u64)) ^ m_in.rotate_right({cl_rot1}u32)"),
                 format!("(r ^ m_out.rotate_right(7)).wrapping_mul(black_box({out_inv}u64)).wrapping_add(m_out)"),
             ),
             _ => (
@@ -1381,11 +1792,41 @@ pub fn generate_rust_defense(
                 format!("((r ^ m_out.swap_bytes()).wrapping_sub(m_out)).wrapping_mul(black_box({out_inv}u64))"),
             ),
         };
+        let (fn_sig_params, callee_min_expr, caller_call_block) = match abi_kind {
+            0 => (
+                "ctx: &mut VmCtx, masked_tok: u64, scrub_out: &mut u64".to_string(),
+                format!("ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64)"),
+                format!(
+                    "                            let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64);\n                            let r = {sym}(ctx, {caller_wrap_expr}, &mut scrub_slot);"
+                ),
+            ),
+            1 => (
+                "masked_tok: u64, ctx: &mut VmCtx, scrub_out: &mut u64".to_string(),
+                format!("ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64)"),
+                format!(
+                    "                            let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64);\n                            let r = {sym}({caller_wrap_expr}, ctx, &mut scrub_slot);"
+                ),
+            ),
+            2 => (
+                "scrub_out: &mut u64, masked_tok: u64, ctx: &mut VmCtx, abi_salt: u64".to_string(),
+                format!("ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64) ^ black_box(abi_salt)"),
+                format!(
+                    "                            let abi_s = black_box({abi_const}u64) ^ scrub_slot.rotate_left({abi_rot}u32);\n                            let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64) ^ abi_s;\n                            let r = {sym}(&mut scrub_slot, {caller_wrap_expr}, ctx, abi_s);"
+                ),
+            ),
+            _ => (
+                "ctx: &mut VmCtx, abi_salt: u64, masked_tok: u64, scrub_out: &mut u64".to_string(),
+                format!("ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64) ^ black_box(abi_salt)"),
+                format!(
+                    "                            let abi_s = black_box({abi_const}u64) ^ scrub_slot.rotate_right({abi_rot}u32);\n                            let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64) ^ abi_s;\n                            let r = {sym}(ctx, abi_s, {caller_wrap_expr}, &mut scrub_slot);"
+                ),
+            ),
+        };
         clusters_code.push_str(&format!(
             r#"#[no_mangle]
 #[inline(never)]
-pub extern "C" fn {sym}(ctx: &mut VmCtx, masked_tok: u64, scrub_out: &mut u64) -> u64 {{
-    let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64);
+pub extern "C" fn {sym}({fn_sig_params}) -> u64 {{
+    let m_in = {callee_min_expr};
     let mut tok = {entry_unwrap_expr};
     let mut sub_steps = 0usize;
     loop {{
@@ -1425,21 +1866,79 @@ pub extern "C" fn {sym}(ctx: &mut VmCtx, masked_tok: u64, scrub_out: &mut u64) -
         ));
 
         dispatch_leaves.push(format!(
-            "                            let m_in = ctx.xform_cluster({c}usize) ^ black_box({in_mask}u64);\n                            let r = {sym}(ctx, {caller_wrap_expr}, &mut scrub_slot);\n                            let m_out = ctx.xform_cluster({c}usize) ^ black_box({out_mask}u64);\n                            {caller_unwrap_expr}\n"
+            "{caller_call_block}\n                            let m_out = ctx.xform_cluster({c}usize) ^ black_box({out_mask}u64);\n                            {caller_unwrap_expr}\n"
         ));
     }
     let dispatch_tree_code = emit_outer_dispatch_tree(&dispatch_leaves, 0, num_clusters, 8);
+    // V17-M4: Synthesize 3..=5 graduated medium-tier callable bridge functions (8KB..45KB) smoothing PE .pdata spectrum
+    let num_bridges = 3usize + ((rng.next_u64() as usize) % 3usize);
+    let mut bridges_code = String::new();
+    let mut bridge_pre_calls = String::new();
+    let mut bridge_post_calls = String::new();
+    for b in 0..num_bridges {
+        let bsym = format!("antirea_bridge_{b}_{tag}");
+        let stages = 4usize + b * 3usize;
+        let mut stage_body = String::new();
+        for st in 0..stages {
+            let sk0 = draw_safe_odd_u64(&mut rng);
+            let sk1 = draw_safe_odd_u64(&mut rng);
+            let srot0 = rng.next_rot();
+            let srot1 = rng.next_rot();
+            let sbank = ((rng.next_u64() as usize) ^ st) & 3usize;
+            let sidx = ((rng.next_u64() as usize) + st * 5) & 31usize;
+            let smode = ((st + b) & 7) as u8;
+            let extra_slot = arena_chaff_base + ((st * 13 + b * 7) % arena_extra);
+            stage_body.push_str(&format!(
+                "    {{\n        let rp = read_rdata_pool({sbank}usize, ((acc as usize) ^ {sidx}usize) & 31usize);\n        let sb = ctx.sbox_u64(acc.rotate_left({srot0}u32) ^ rp, {sk0}u64);\n        let mixed = unsafe {{\n            let va = _mm_set_epi64x((sb ^ black_box({sk1}u64)) as i64, acc.wrapping_add(rp) as i64);\n            let vb = _mm_set_epi64x(rp.rotate_right({srot1}u32) as i64, salt_in as i64);\n            let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf4:02x}));\n            (_mm_cvtsi128_si64(vx) as u64) ^ (_mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64).rotate_left({srot1}u32)\n        }};\n        acc = mixed.wrapping_mul(black_box({sk1}u64) | 1) ^ sb;\n        ctx.arena[{extra_slot}usize] = ctx.arena[{extra_slot}usize].wrapping_add(acc.rotate_left({srot0}u32)) ^ rp;\n"
+            ));
+            if (st & 3usize) == 0usize {
+                stage_body.push_str(&format!(
+                    "        ctx.re_share_header(acc, {smode}u8);\n        ctx.chaff_pulse({sk0}u64 ^ acc, {smode}u8);\n"
+                ));
+            }
+            stage_body.push_str("    }\n");
+        }
+        bridges_code.push_str(&format!(
+            "#[no_mangle]\n#[inline(never)]\npub extern \"C\" fn {bsym}(ctx: &mut VmCtx, seed_in: u64, salt_in: u64) -> u64 {{\n    let mut acc = black_box(seed_in) ^ black_box(salt_in).rotate_left({vr0}u32);\n{stage_body}    acc\n}}\n\n"
+        ));
+        let call_salt = draw_safe_odd_u64(&mut rng);
+        let b_slot = b & 7usize;
+        let gated_call = format!(
+            "    if (((a0 ^ a1.rotate_left(7)).wrapping_mul(black_box({call_salt}u64)) >> 59) as usize & 7usize) == {b_slot}usize {{\n        scrub_slot = {bsym}(ctx, scrub_slot ^ tok, {call_salt}u64);\n    }}\n"
+        );
+        if (b & 1usize) == 0usize {
+            bridge_pre_calls.push_str(&gated_call);
+        } else {
+            bridge_post_calls.push_str(&gated_call);
+        }
+    }
+    let entry_pack_code = match pack_topo {
+        0 => format!(
+            "    let s0_init = (a0.wrapping_mul(black_box({pack_mul0}u64)) ^ a1.rotate_left({pack_rot0}u32)).wrapping_add(black_box({gate_seed_0}u64));\n    let s1_init = (a1.wrapping_add(a0.rotate_left({pack_rot1}u32)) ^ black_box({gate_seed_1}u64)).wrapping_mul(black_box({gate_seed_2}u64) | 1);"
+        ),
+        1 => format!(
+            "    let s0_init = a0.rotate_left({pack_rot0}u32).wrapping_sub(a1.wrapping_mul(black_box({pack_mul0}u64))) ^ black_box({gate_seed_0}u64);\n    let s1_init = a1.rotate_right({pack_rot1}u32).wrapping_add(a0 ^ black_box({gate_seed_0}u64)).wrapping_mul(black_box({gate_seed_1}u64) | 1);"
+        ),
+        2 => format!(
+            "    let s0_init = (a0 ^ black_box({gate_seed_0}u64)).wrapping_mul(black_box({pack_mul0}u64)).wrapping_add(a1.rotate_left({pack_rot0}u32));\n    let s1_init = (a1 ^ a0.rotate_right({pack_rot1}u32)).wrapping_mul(black_box({gate_seed_1}u64) | 1) ^ a0.rotate_left({pack_rot2}u32);"
+        ),
+        _ => format!(
+            "    let s0_init = a0.wrapping_add(black_box({gate_seed_0}u64)).rotate_left({pack_rot0}u32) ^ a1.wrapping_mul(black_box({pack_mul0}u64));\n    let s1_init = a1.wrapping_sub(a0.rotate_left({pack_rot1}u32)).wrapping_mul(black_box({gate_seed_1}u64) | 1).wrapping_add(a0.rotate_right({pack_rot2}u32));"
+        ),
+    };
 
     let runtime_lib_rs = format!(
-        r#"//! Generated Pure-Rust Counter-Exploitation Runtime (Format v13, Tag 0x{tag})
+        r#"//! Generated Pure-Rust Counter-Exploitation Runtime (Format v19, Tag 0x{tag})
 #![allow(clippy::all, non_snake_case, unused_variables, dead_code)]
 
 use core::arch::x86_64::*;
 use core::hint::black_box;
 use core::mem::MaybeUninit;
 
+const HDR_PAIR_ROTS: [u32; 32] = [{hdr_pair_rots_lits}];
+
 #[used]
-pub static ANTIREA_RDATA_POOL: [u64; 256] = [{rdata_pool_lits}];
+pub static ANTIREA_RDATA_POOL: [u64; {rpool_len}] = [{rdata_pool_lits}];
 
 #[used]
 pub static ANTIREA_SBOX: [u8; 256] = [{sbox_lits}];
@@ -1447,42 +1946,71 @@ pub static ANTIREA_SBOX: [u8; 256] = [{sbox_lits}];
 #[used]
 pub static ANTIREA_INV_SBOX: [u8; 256] = [{inv_sbox_lits}];
 
+#[used]
+pub static ANTIREA_CLUSTER_LUT: [u8; 256] = [{cluster_lut_lits}];
+
 #[inline(always)]
 pub fn read_rdata_pool(bank: usize, idx: usize) -> u64 {{
     let b = bank & 3usize;
-    let k = b | ((idx & 31usize) << 2);
-    let pos = (k.wrapping_mul({rpool_mul}usize).wrapping_add({rpool_add}usize)) & 255usize;
-    let raw = unsafe {{ core::ptr::read_volatile(ANTIREA_RDATA_POOL.as_ptr().add(pos)) }};
-    raw.rotate_left(((b as u32) * 7 + 3) & 63) ^ black_box({rpool_unmask}u64)
+    let k = (b | ((idx & 31usize) << 2)) ^ {rpool_add}usize;
+    let l0 = k & 15usize;
+    let r0 = (k >> 4) & 15usize;
+    let f0 = ((r0.wrapping_add({rpool_fk0}usize & 15usize)).rotate_left(1) ^ (r0 >> 1)) & 15usize;
+    let l1 = r0;
+    let r1 = l0 ^ f0;
+    let f1 = ((r1 ^ (({rpool_fk0}usize >> 4) & 15usize)).wrapping_add(r1 << 1)) & 15usize;
+    let pos0 = ((l1 ^ f1) | (r1 << 4)) & 255usize;
+    let pos1 = (pos0.rotate_left(3) ^ {rpool_fk1}usize) & 255usize;
+    let pos2 = 256usize + ((pos0 ^ pos1 ^ (b.wrapping_mul(13)) ^ {rpool_fk1}usize) & {rpool_tail_mask}usize);
+    let w0 = unsafe {{ core::ptr::read_volatile(ANTIREA_RDATA_POOL.as_ptr().add(pos0)) }};
+    let w1 = unsafe {{ core::ptr::read_volatile(ANTIREA_RDATA_POOL.as_ptr().add(pos1)) }};
+    let w2 = unsafe {{ core::ptr::read_volatile(ANTIREA_RDATA_POOL.as_ptr().add(pos2)) }};
+    let rot0 = ((b as u32) * 7 + 3) & 63;
+    let rot1 = ((b as u32) * 11 + 5) & 63;
+    (w0.rotate_left(rot0)
+        .wrapping_add(w1.rotate_right(rot1))
+        .wrapping_add(w2.rotate_left({rpool_w2_rot}u32)))
+        ^ (w0.wrapping_mul(w1 | 1).rotate_left({rpool_mix_rot}u32))
+        ^ black_box({rpool_unmask}u64).rotate_left(((b as u32) * 13 + 5) & 63)
 }}
 
 #[inline(always)]
 pub fn compute_entry_gate_and_state(arg0: u32, arg1: u32) -> (u64, [u64; 4]) {{
     let a0 = black_box(arg0 as u64);
     let a1 = black_box(arg1 as u64);
-    let mut s0 = (a0 | (a1 << 32)).wrapping_add(black_box({gate_seed_0}u64));
-    let mut s1 = (a1.rotate_left(17) ^ a0.rotate_right(11)).wrapping_mul(black_box({gate_seed_1}u64) | 1);
-    let mut st = [0u64; 4];
-    for r in 0..black_box(8usize) {{
-        let ia = (((s0 ^ (r as u64).wrapping_mul(7)) >> 5) as usize) & 31usize;
-        let ib = (((s1 ^ (r as u64).wrapping_mul(13)) >> 11) as usize) & 31usize;
-        let ta = read_rdata_pool(r & 1, ia);
-        let tb = read_rdata_pool((r & 1) ^ 1, ib);
-        unsafe {{
-            let va = _mm_set_epi64x((s1 ^ tb) as i64, (s0 ^ ta) as i64);
-            let vb = _mm_set_epi64x(
-                ta.rotate_left(((r * 5 + 3) & 31) as u32) as i64,
-                tb.rotate_right(((r * 7 + 1) & 31) as u32) as i64,
-            );
-            let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0b01_00_11_10));
-            let lo = _mm_cvtsi128_si64(vx) as u64;
-            let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
-            s0 = lo.wrapping_mul(black_box({gate_seed_2}u64) | 1) ^ hi.rotate_left(19);
-            s1 = hi.wrapping_add(s0.rotate_right(13)) ^ ta;
-            st[r & 3] ^= s0.rotate_left(((r * 7 + 3) & 63) as u32).wrapping_add(s1 ^ tb);
-        }}
-    }}
-    (s0 ^ s1.rotate_left(29), st)
+{entry_pack_code}
+    let p0 = read_rdata_pool(0, ((s0_init >> 5) as usize) & 31usize);
+    let p1 = read_rdata_pool(1, ((s1_init >> 11) as usize) & 31usize);
+    let (u0, u1) = unsafe {{
+        let va = _mm_set_epi64x((s1_init ^ p1) as i64, (s0_init ^ p0) as i64);
+        let vb = _mm_set_epi64x(p0.rotate_left(7) as i64, p1.rotate_right(13) as i64);
+        let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf5:02x}));
+        let lo = _mm_cvtsi128_si64(vx) as u64;
+        let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
+        let n0 = lo.wrapping_mul(black_box({gate_seed_2}u64) | 1) ^ hi.rotate_left(19);
+        let n1 = hi.wrapping_add(n0.rotate_right(13)) ^ p0;
+        (n0, n1)
+    }};
+    let p2 = read_rdata_pool(2, (((u0 ^ p1) >> 7) as usize) & 31usize);
+    let p3 = read_rdata_pool(3, (((u1 ^ p0) >> 13) as usize) & 31usize);
+    let (v0, v1) = unsafe {{
+        let va = _mm_set_epi64x((u0.rotate_left({vr0}u32) ^ p3) as i64, (u1.wrapping_add(p2)) as i64);
+        let vb = _mm_set_epi64x(p2.rotate_right(9) as i64, p3.rotate_left(15) as i64);
+        let vx = _mm_xor_si128(_mm_add_epi64(va, vb), _mm_shuffle_epi32(vb, 0x{fe_shuf6:02x}));
+        let lo = _mm_cvtsi128_si64(vx) as u64;
+        let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
+        let n0 = (lo ^ p2).wrapping_mul(black_box({gate_seed_1}u64) | 1).rotate_left(23);
+        let n1 = (hi.wrapping_sub(p3) ^ n0).wrapping_mul(black_box({gate_seed_0}u64) | 1);
+        (n0, n1)
+    }};
+    let p4 = read_rdata_pool(1, (((v0.wrapping_add(u1)) >> 9) as usize) & 31usize);
+    let p5 = read_rdata_pool(3, (((v1 ^ u0) >> 15) as usize) & 31usize);
+    let st0 = u0.rotate_left(3).wrapping_add(v1 ^ p1) ^ p4;
+    let st1 = v0.rotate_left({vr1}u32).wrapping_sub(u1 ^ p2) ^ p5.rotate_left({vr2}u32);
+    let st2 = (u0 ^ v1).wrapping_mul(p3 | 1).rotate_left(29) ^ p0;
+    let st3 = (v0.wrapping_add(u1)).rotate_right(19) ^ (p4.wrapping_mul(p5 | 1));
+    let gate = st0 ^ st1.rotate_left(13) ^ st2.rotate_right({vr3}u32) ^ st3.wrapping_mul(black_box({gate_seed_2}u64) | 1);
+    (gate, [st0, st1, st2, st3])
 }}
 
 #[inline(always)]
@@ -1499,38 +2027,39 @@ pub fn feistel_round_params(gate: u64, st: &[u64; 4], r: usize) -> (u64, u64, u3
             tc.rotate_left(((r * 3 + 7) & 31) as u32) as i64,
             td.rotate_right(((r * 9 + 5) & 31) as u32) as i64,
         );
-        let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0b10_11_00_01));
+        let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf7:02x}));
         let lo = _mm_cvtsi128_si64(vx) as u64;
         let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
         let rk_add = lo.wrapping_mul(black_box({post_unseal_mul}u64) | 1)
-            ^ hi.rotate_left(17)
+            ^ hi.rotate_left({vr4}u32)
             ^ black_box({post_seed_0}u64);
-        let rk_xor = hi.wrapping_add(rk_add.rotate_left(11)) ^ td ^ black_box({post_seed_1}u64);
+        let rk_xor = hi.wrapping_add(rk_add.rotate_left({vr5}u32)) ^ td ^ black_box({post_seed_1}u64);
         let rot = (((lo ^ hi) as u32 & 15) + 7 + (r as u32) * 5) & 63;
-        let rot_nz = if rot == 0 {{ 17 }} else {{ rot }};
+        let rot_nz = if rot == 0 || rot == 11 || rot == 17 || rot == 47 || rot == 53 {{ {vr6}u32 }} else {{ rot }};
         (rk_add, rk_xor, rot_nz)
     }}
 }}
 
 #[inline(always)]
 pub fn seal_return_feistel(val: u64, gate: u64, st: &[u64; 4]) -> u64 {{
-    let mut x = black_box(val);
-    for r in 0..black_box(4usize) {{
-        let (rk_add, rk_xor, rot) = feistel_round_params(gate, st, r);
-        x = (x.wrapping_add(rk_add).rotate_left(rot)) ^ rk_xor;
-    }}
-    x
+    let x0 = black_box(val);
+    let (a0, k0, r0) = feistel_round_params(gate, st, 0);
+    let x1 = (x0.wrapping_add(a0).rotate_left(r0)) ^ k0;
+    let (a1, k1, r1) = feistel_round_params(gate, st, 1);
+    let x2 = ((x1 ^ k1).rotate_left(r1)).wrapping_add(a1);
+    let (a2, k2, r2) = feistel_round_params(gate, st, 2);
+    (x2.wrapping_add(a2).rotate_left(r2)) ^ k2
 }}
 
 #[inline(always)]
 pub fn unseal_return_feistel(sealed: u64, gate: u64, st: &[u64; 4]) -> u64 {{
-    let mut x = black_box(sealed);
-    for r_inv in 0..black_box(4usize) {{
-        let r = 3usize - r_inv;
-        let (rk_add, rk_xor, rot) = feistel_round_params(gate, st, r);
-        x = (x ^ rk_xor).rotate_right(rot).wrapping_sub(rk_add);
-    }}
-    x
+    let y2 = black_box(sealed);
+    let (a2, k2, r2) = feistel_round_params(gate, st, 2);
+    let x2 = (y2 ^ k2).rotate_right(r2).wrapping_sub(a2);
+    let (a1, k1, r1) = feistel_round_params(gate, st, 1);
+    let x1 = x2.wrapping_sub(a1).rotate_right(r1) ^ k1;
+    let (a0, k0, r0) = feistel_round_params(gate, st, 0);
+    (x1 ^ k0).rotate_right(r0).wrapping_sub(a0)
 }}
 
 #[repr(C, align(16))]
@@ -1540,85 +2069,128 @@ pub struct VmCtx {{
 
 impl VmCtx {{
     #[inline(always)]
+    pub fn hdr_blind7(u: u64) -> u64 {{
+        ((u >> {hr_sh0}u32) ^ (u >> {hr_sh1}u32) ^ (u >> {hr_sh2}u32)) & 127u64
+    }}
+
+    #[inline(always)]
     pub fn hdr_salt(&self) -> usize {{
-        (black_box(self.hdr_route) & 31u64) as usize
+        ((self.hdr_route ^ Self::hdr_blind7(self.hdr_route)) & 31u64) as usize
     }}
 
     #[inline(always)]
     pub fn hot_bank(&self) -> usize {{
-        ((black_box(self.hdr_route) >> 5) & 3u64) as usize
+        (((self.hdr_route ^ Self::hdr_blind7(self.hdr_route)) >> 5) & 3u64) as usize
+    }}
+
+    #[inline(always)]
+    pub fn route_slot_mask(&self, idx: usize) -> u8 {{
+        let s = (self.slot_salt() as u64)
+            .wrapping_mul(((idx as u64).wrapping_mul({route_idx_mul}u64)) | 1u64)
+            .wrapping_add(((idx as u64) ^ {route_idx_xor}u64).wrapping_mul({route_idx_add}u64));
+        (((s >> 39) ^ (s >> 19) ^ s) as u8) ^ {route_byte_mask}u8
+    }}
+
+    #[inline(always)]
+    pub fn hdr_feistel(x: usize) -> usize {{
+        let l0 = x & 7usize;
+        let r0 = (x >> 3) & 3usize;
+        let f0 = ((r0.wrapping_add({hdr_fk0}usize & 7usize)).rotate_left(1) ^ (r0 >> 1) ^ ({hdr_fk1}usize & 7usize)) & 7usize;
+        let l1 = (l0 ^ f0) & 7usize;
+        let f1 = ((l1 ^ (l1 >> 1) ^ (({hdr_fk0}usize >> 2) & 3usize)).wrapping_add(l1 & 3usize)) & 3usize;
+        let r2 = (r0 ^ f1) & 3usize;
+        l1 | (r2 << 3)
     }}
 
     #[inline(always)]
     pub fn hdr_ia(&self, id: usize) -> usize {{
-        let q = ((id ^ self.hdr_salt()).wrapping_mul({hdr_perm_mul}usize).wrapping_add({hdr_perm_add}usize)) & 31usize;
-        ((q & !3usize) << 1) | (q & 3usize)
+        {hdr_bank_a}usize + Self::hdr_feistel((id ^ self.hdr_salt()) & 31usize)
     }}
 
     #[inline(always)]
     pub fn hdr_ib(&self, id: usize) -> usize {{
-        let q = ((id ^ 0x15usize ^ self.hdr_salt()).wrapping_mul({hdr_perm_mul}usize).wrapping_add({hdr_perm_add}usize)) & 31usize;
-        ((q & !3usize) << 1) | 4usize | (((q.wrapping_mul(3)) ^ 1usize) & 3usize)
+        {hdr_bank_b}usize + Self::hdr_feistel((id ^ 0x15usize ^ self.hdr_salt()) & 31usize)
     }}
 
     #[inline(always)]
     pub fn hdr_ic(&self, id: usize) -> usize {{
-        let q = ((id ^ 0x0ausize ^ self.hdr_salt()).wrapping_mul({hdr_perm_mul}usize).wrapping_add({hdr_perm_add}usize)) & 31usize;
-        64usize + q
+        {hdr_bank_c}usize + Self::hdr_feistel((id ^ 0x0ausize ^ self.hdr_salt()) & 31usize)
     }}
 
     #[inline(always)]
-    pub fn hdr_rot2(&self, id: usize) -> u32 {{
-        (((id as u32).wrapping_mul(11) ^ 7) & 31) + 1
+    pub fn hdr_rot2(rot_hint: u32) -> u32 {{
+        HDR_PAIR_ROTS[20usize + ((rot_hint as usize) & 7usize)]
     }}
 
     #[inline(always)]
-    pub fn get_pair(&self, id: usize, rot: u32) -> u64 {{
+    pub fn get_pair(&self, id: usize, rot_hint: u32) -> u64 {{
         let ia = self.hdr_ia(id);
         let ib = self.hdr_ib(id);
         let ic = self.hdr_ic(id);
-        let rot2 = self.hdr_rot2(id);
-        let ab = black_box(self.hdr[ia]) ^ black_box(self.hdr[ib]).rotate_left(rot);
-        ab.wrapping_sub(black_box(self.hdr[ic]).rotate_right(rot2))
+        let rot = rot_hint;
+        let rot2 = Self::hdr_rot2(rot_hint);
+        let a = self.hdr[ia];
+        let b = self.hdr[ib].rotate_left(rot);
+        let c = self.hdr[ic].rotate_right(rot2);
+        let p = ((id & 1usize) as u64).wrapping_neg();
+        ((a ^ b).wrapping_sub(c ^ p)) ^ (b & p)
     }}
 
     #[inline(always)]
-    pub fn set_pair(&mut self, id: usize, val: u64, mask: u64, rot: u32) {{
+    pub fn set_pair(&mut self, id: usize, val: u64, mask: u64, rot_hint: u32) {{
         let ia = self.hdr_ia(id);
         let ib = self.hdr_ib(id);
         let ic = self.hdr_ic(id);
-        let rot2 = self.hdr_rot2(id);
-        let mc = mask.swap_bytes().wrapping_mul(black_box({hdr_c_mul}u64) | 1) ^ val.rotate_left(17);
+        let rot = rot_hint;
+        let rot2 = Self::hdr_rot2(rot_hint);
+        let mc = mask.swap_bytes().wrapping_mul(black_box({hdr_c_mul}u64) | 1) ^ val.rotate_left({vr7}u32);
+        let b = mask.rotate_left(rot);
+        let c = mc.rotate_right(rot2);
+        let p = ((id & 1usize) as u64).wrapping_neg();
         self.hdr[ib] = mask;
         self.hdr[ic] = mc;
-        self.hdr[ia] = val.wrapping_add(mc.rotate_right(rot2)) ^ mask.rotate_left(rot);
+        self.hdr[ia] = (val ^ (b & p)).wrapping_add(c ^ p) ^ b;
     }}
 
     #[inline(always)]
-    pub fn xor_pair(&mut self, id: usize, delta_b: u64, rot: u32) {{
+    pub fn xor_pair(&mut self, id: usize, delta_b: u64, rot_hint: u32) {{
         let ia = self.hdr_ia(id);
         let ib = self.hdr_ib(id);
         let ic = self.hdr_ic(id);
-        let rot2 = self.hdr_rot2(id);
-        let cur_val = (self.hdr[ia] ^ self.hdr[ib].rotate_left(rot))
-            .wrapping_sub(self.hdr[ic].rotate_right(rot2));
+        let rot = rot_hint;
+        let rot2 = Self::hdr_rot2(rot_hint);
+        let p = ((id & 1usize) as u64).wrapping_neg();
+        let b_old = self.hdr[ib].rotate_left(rot);
+        let c_old = self.hdr[ic].rotate_right(rot2);
+        let cur_val = ((self.hdr[ia] ^ b_old).wrapping_sub(c_old ^ p)) ^ (b_old & p);
         let new_b = self.hdr[ib] ^ delta_b;
         let new_c = self.hdr[ic].wrapping_add(delta_b.swap_bytes() | 1);
+        let b_new = new_b.rotate_left(rot);
+        let c_new = new_c.rotate_right(rot2);
         self.hdr[ib] = new_b;
         self.hdr[ic] = new_c;
-        self.hdr[ia] = cur_val.wrapping_add(new_c.rotate_right(rot2)) ^ new_b.rotate_left(rot);
+        self.hdr[ia] = (cur_val ^ (b_new & p)).wrapping_add(c_new ^ p) ^ b_new;
+    }}
+
+    #[inline(always)]
+    pub fn arena_feistel(x: usize) -> usize {{
+        let l0 = x & 31usize;
+        let r0 = (x >> 5) & 15usize;
+        let f0 = ((r0.wrapping_add({arena_fk0}usize & 31usize)).rotate_left(1) ^ (r0 >> 1) ^ ({arena_fk1}usize & 31usize)) & 31usize;
+        let l1 = (l0 ^ f0) & 31usize;
+        let f1 = ((l1 ^ (l1 >> 2) ^ (({arena_fk0}usize >> 4) & 15usize)).wrapping_add(l1 & 15usize)) & 15usize;
+        let r2 = (r0 ^ f1) & 15usize;
+        l1 | (r2 << 5)
     }}
 
     #[inline(always)]
     pub fn idx_a(&self, phys: usize) -> usize {{
-        let q = ((phys ^ (self.slot_salt() & 0x3fusize)).wrapping_mul({arena_perm_mul}usize).wrapping_add({arena_perm_add}usize)) & 511usize;
-        ((q & !3usize) << 1) | (q & 3usize)
+        {arena_bank_a}usize + Self::arena_feistel((phys ^ (self.slot_salt() & 0x3fusize)) & 511usize)
     }}
 
     #[inline(always)]
     pub fn idx_b(&self, phys: usize) -> usize {{
-        let q = ((phys ^ 0x15usize ^ ((self.slot_salt() >> 2) & 0x3fusize)).wrapping_mul({arena_perm_mul}usize).wrapping_add({arena_perm_add}usize)) & 511usize;
-        ((q & !3usize) << 1) | 4usize | (((q.wrapping_mul(3)) ^ 1usize) & 3usize)
+        {arena_bank_b}usize + Self::arena_feistel((phys ^ 0x15usize ^ ((self.slot_salt() >> 2) & 0x3fusize)) & 511usize)
     }}
 
     #[inline(always)]
@@ -1636,7 +2208,9 @@ impl VmCtx {{
         let m_lo = black_box({ent_mul_lo}u64) as u128;
         let m_hi = (black_box({ent_mul_hi}u64) as u128) << 64;
         let seed128 = m_lo | m_hi;
-        let input128 = (a0 as u128) | ((a1 as u128) << 32) | (((a0.rotate_left(17) ^ a1.rotate_right(11)) as u128) << 64);
+        let input_lo = a0.wrapping_mul(black_box({pack_mul1}u64)) ^ a1.rotate_left({pack_rot2}u32) ^ black_box({pre_c0}u64);
+        let input_hi = a0.rotate_left({pack_rot3}u32).wrapping_add(a1.rotate_right({pack_rot1}u32)) ^ a1.wrapping_mul(black_box({pre_c2}u64) | 1);
+        let input128 = (input_lo as u128) | ((input_hi as u128) << 64);
         let ent128 = input128.wrapping_mul(seed128).wrapping_add(seed128 ^ ({ent_add_xor}u128));
 
         let s0 = black_box({tk_s0}u64);
@@ -1644,14 +2218,14 @@ impl VmCtx {{
         let s2 = black_box({tk_s2}u64);
         let s3 = black_box({tk_s3}u64);
         let fp_tk_mix = read_rdata_pool(0, 11)
-            ^ read_rdata_pool(1, 23).rotate_left(17)
+            ^ read_rdata_pool(1, 23).rotate_left({fp_tk_rot}u32)
             ^ read_rdata_pool(2, 7).rotate_right(13)
             ^ read_rdata_pool(3, 19);
         let trans_key_masked = {{
             let v0 = _mm_set_epi64x(s2 as i64, (s0.wrapping_mul(s1)) as i64);
             let v1 = _mm_set_epi64x((s2 ^ s3) as i64, (s2.rotate_left(23)) as i64);
             let vx = _mm_xor_si128(v0, v1);
-            let vshuf = _mm_shuffle_epi32(vx, 0b01_00_11_10);
+            let vshuf = _mm_srli_si128(vx, 8);
             let vsum = _mm_add_epi64(vx, vshuf);
             (_mm_cvtsi128_si64(vsum) as u64)
                 ^ fp_tk_mix
@@ -1661,9 +2235,11 @@ impl VmCtx {{
 
         let e_lo = ent128 as u64;
         let e_hi = (ent128 >> 64) as u64;
-        let h_salt = (a0 ^ a1.rotate_left(7) ^ (e_lo >> 11)) & 31u64;
+        let h_salt = (a0 ^ a1 ^ (a0 >> 5) ^ (a1 >> 3) ^ (e_lo >> 11) ^ (e_hi >> 7)) & 31u64;
         let init_bank = ((e_lo >> 17) ^ (e_hi >> 5)) & 3u64;
-        (*ptr).hdr_route = (e_lo & !127u64) | (init_bank << 5) | h_salt;
+        let hr_upper = e_lo & black_box(0xffff_ffff_ffff_ff80u64);
+        let hr_low7 = ((init_bank << 5) | h_salt) ^ Self::hdr_blind7(hr_upper);
+        (*ptr).hdr_route = hr_upper | hr_low7;
         (*ptr).st_ptr = st_ptr as usize;
         (*ptr).funcs_ptr = 0;
         (*ptr).nfuncs = 0;
@@ -1676,10 +2252,10 @@ impl VmCtx {{
 
         let m_tk = e_lo.rotate_left(3) ^ {pre_c0}u64;
         let m_cm = e_hi.rotate_left(7) ^ {pre_c1}u64;
-        let m_hm = e_lo.rotate_right(11) ^ {pre_c2}u64;
+        let m_hm = e_lo.rotate_right({vr8}u32) ^ {pre_c2}u64;
         let m_hb = e_hi.rotate_left(15) ^ {pre_c3}u64;
         let m_xf = e_lo.rotate_right(19) ^ {pre_c4}u64;
-        let m_rb = e_hi.rotate_right(17) ^ {pre_c3}u64;
+        let m_rb = e_hi.rotate_right({vr9}u32) ^ {pre_c3}u64;
         let m_sb = e_lo.swap_bytes() ^ {pre_c4}u64;
         let m_fb = e_hi.swap_bytes() ^ {pre_c5}u64;
         let m_pm = (e_lo ^ e_hi).rotate_left(13) ^ {pre_c0}u64;
@@ -1695,7 +2271,7 @@ impl VmCtx {{
 
         let cm_raw = black_box({cluster_mask}u64);
         let hm_raw = black_box({halt_magic}u64);
-        let hb_raw = (e_lo.rotate_left(19) ^ e_hi.rotate_right(11) ^ {pre_c5}u64) | 1;
+        let hb_raw = (e_lo.rotate_left(19) ^ e_hi.rotate_right({vr10}u32) ^ {pre_c5}u64) | 1;
         let xf_raw = e_lo.wrapping_add(e_hi.rotate_left(23)) ^ {pre_c0}u64;
         let rb_raw = black_box({reg_bias_seed}u64);
         let sb_raw = black_box({stk_bias_seed}u64);
@@ -1703,37 +2279,36 @@ impl VmCtx {{
         let x0_raw = e_lo ^ m_tk;
         let x1_raw = e_hi ^ m_cm;
         let g0_raw = gate ^ gate_diff.rotate_left(19);
-        let g1_raw = e_lo.rotate_left(13) ^ e_hi.rotate_right(7) ^ gate_diff.rotate_right(11);
-        let dyn_halt = hm_raw.wrapping_add(hb_raw);
+        let g1_raw = e_lo.rotate_left(13) ^ e_hi.rotate_right(7) ^ gate_diff.rotate_right({vr11}u32);
         let init_st = [g0_raw, g1_raw, trans_key_masked, cm_raw];
         let init_sealed = seal_return_feistel(0u64, g0_raw, &init_st);
         let r0_raw = m_r0 ^ m_r1.rotate_left(13);
-        let r1_raw = (init_sealed ^ dyn_halt.rotate_left(31)).wrapping_sub(hb_raw.rotate_left(13)).wrapping_sub(r0_raw);
+        let r1_raw = g1_raw.wrapping_sub(r0_raw);
 
         let ctx = &mut *ptr;
-        ctx.set_pair(0, trans_key_masked, m_tk, 11);
-        ctx.set_pair(1, cm_raw, m_cm, 19);
-        ctx.set_pair(2, hm_raw, m_hm, 23);
-        ctx.set_pair(3, hb_raw, m_hb, 27);
-        ctx.set_pair(4, xf_raw, m_xf, 15);
-        ctx.set_pair(5, r0_raw, m_r0, 17);
-        ctx.set_pair(6, rb_raw, m_rb, 7);
-        ctx.set_pair(7, sb_raw, m_sb, 13);
-        ctx.set_pair(8, fb_raw, m_fb, 17);
-        ctx.set_pair(9, r1_raw, m_r1, 29);
-        ctx.set_pair(10, perm_raw, m_pm, 29);
-        ctx.set_pair(11, stk_add, m_sp, 13);
-        ctx.set_pair(12, g0_raw, m_g0, 21);
-        ctx.set_pair(13, g1_raw, m_g1, 25);
-        ctx.set_pair(14, black_box({vault_init}u64), m_g0.rotate_left(7), 19);
-        ctx.set_pair(15, e_hi.rotate_left(13), m_g1.rotate_left(11), 19);
+        ctx.set_pair(0, trans_key_masked, m_tk, HDR_PAIR_ROTS[0]);
+        ctx.set_pair(1, cm_raw, m_cm, HDR_PAIR_ROTS[1]);
+        ctx.set_pair(2, hm_raw, m_hm, HDR_PAIR_ROTS[2]);
+        ctx.set_pair(3, hb_raw, m_hb, HDR_PAIR_ROTS[3]);
+        ctx.set_pair(4, xf_raw, m_xf, HDR_PAIR_ROTS[4]);
+        ctx.set_pair(5, r0_raw, m_r0, HDR_PAIR_ROTS[5]);
+        ctx.set_pair(6, rb_raw, m_rb, HDR_PAIR_ROTS[6]);
+        ctx.set_pair(7, sb_raw, m_sb, HDR_PAIR_ROTS[7]);
+        ctx.set_pair(8, fb_raw, m_fb, HDR_PAIR_ROTS[8]);
+        ctx.set_pair(9, r1_raw, m_r1, HDR_PAIR_ROTS[9]);
+        ctx.set_pair(10, perm_raw, m_pm, HDR_PAIR_ROTS[10]);
+        ctx.set_pair(11, stk_add, m_sp, HDR_PAIR_ROTS[11]);
+        ctx.set_pair(12, g0_raw, m_g0, HDR_PAIR_ROTS[12]);
+        ctx.set_pair(13, g1_raw, m_g1, HDR_PAIR_ROTS[13]);
+        ctx.set_pair(14, black_box({vault_init}u64), m_g0.rotate_left(7), HDR_PAIR_ROTS[14]);
+        ctx.set_pair(15, init_sealed, m_g1.rotate_left({vr12}u32), HDR_PAIR_ROTS[15]);
         for b in 0..4usize {{
             let base_id = 16usize + (b << 2);
             let b_rot = (b as u32) * 7 + 1;
-            ctx.set_pair(base_id, e_lo, m_elo.rotate_left(b_rot), 7);
-            ctx.set_pair(base_id + 1, e_hi, m_ehi.rotate_left(b_rot), 23);
-            ctx.set_pair(base_id + 2, x0_raw, m_x0.rotate_left(b_rot), 13);
-            ctx.set_pair(base_id + 3, x1_raw, m_x1.rotate_left(b_rot), 29);
+            ctx.set_pair(base_id, e_lo, m_elo.rotate_left(b_rot), HDR_PAIR_ROTS[16]);
+            ctx.set_pair(base_id + 1, e_hi, m_ehi.rotate_left(b_rot), HDR_PAIR_ROTS[17]);
+            ctx.set_pair(base_id + 2, x0_raw, m_x0.rotate_left(b_rot), HDR_PAIR_ROTS[18]);
+            ctx.set_pair(base_id + 3, x1_raw, m_x1.rotate_left(b_rot), HDR_PAIR_ROTS[19]);
         }}
 
         let m0 = ctx.fast_entropy({pre_c0}u64, 0);
@@ -1751,165 +2326,199 @@ impl VmCtx {{
             ctx.arg_a[slot] = rb_raw.rotate_left(bias_rot) ^ mk.rotate_left(rot);
         }}
 
-        // V10-M2 + V14.2-M1: Branchless continuous prologue vault ratchet across randomized odd vault_steps (no 0x1ff/0x200 branch)
-        let mut r_state = m0 ^ m1.rotate_left(17);
-        let total_init_trips = black_box({vault_steps}usize + 11usize + (((e_lo ^ e_hi) as usize) & 15usize));
-        for step in 0..total_init_trips {{
-            let r = if (step & 7usize) == 0usize {{
-                ctx.fast_entropy({pre_c2}u64 ^ (step as u64).wrapping_mul({pre_c3}u64), (step & 3) as u8)
+        // V16-M2 + V17-M3 + V18-M2: GF(2^9) & GF(2^8) Galois LFSR prologue vault ratchet (zero Hull-Dobell LCG or counted scrub loop)
+        let mut r_state = m0 ^ m1.rotate_left({pack_rot0}u32);
+        ctx.init_prologue_slot(Self::arena_feistel(0usize), r_state);
+        let mut p_tok = black_box({p_init_tok}u64);
+        let mut lfsr9 = (((e_lo ^ e_hi) as usize) & 511usize) | 1usize;
+        while black_box(p_tok) != black_box({p_vault_end_tok}u64) {{
+            let cad_bit = (black_box({cadence_mask}u64) >> (((p_tok >> 29) ^ r_state) & 63)) & 1u64;
+            let r = if cad_bit != 0u64 {{
+                ctx.fast_entropy({pre_c2}u64 ^ p_tok.wrapping_mul({pre_c3}u64), ((p_tok >> 3) & 3) as u8)
             }} else {{
                 r_state
                     .rotate_left(19)
                     .wrapping_mul(black_box({pre_c3}u64) | 1)
-                    .wrapping_add(ctx.vault_key_val() ^ (step as u64))
+                    .wrapping_add(ctx.vault_key_val() ^ p_tok)
             }};
             r_state = r;
-            if step == 0usize {{
-                ctx.set_pair(15, r.rotate_left(11), r.swap_bytes(), 19);
+            let idx512 = Self::arena_feistel(lfsr9);
+
+            let bank = ((p_tok >> 11) as usize) & 3usize;
+            let ridx = ((p_tok >> 19) as usize) & 31usize;
+            let vp = read_rdata_pool(bank, ridx);
+            let next_vk = ctx
+                .vault_key_val()
+                .rotate_left(13)
+                .wrapping_mul(black_box({vault_step_mul}u64) | 1)
+                ^ vp
+                ^ p_tok.wrapping_mul(black_box({vault_init}u64));
+            ctx.set_pair(14, next_vk, r.swap_bytes(), HDR_PAIR_ROTS[14]);
+            let tk_step_delta = next_vk.rotate_left((((p_tok >> 7) as u32) & 31) + 1) ^ vp.rotate_right({vault_vp_rot}u32);
+            ctx.set_pair(0, ctx.trans_key_val() ^ tk_step_delta, r.rotate_left(7), HDR_PAIR_ROTS[0]);
+
+            ctx.init_prologue_slot(idx512, r);
+            if ((p_tok >> 41) & 15) == 0 {{
+                ctx.re_share_header(r, ((p_tok >> 5) & 7) as u8);
             }}
-            if step < {pad_lo_len}usize {{
-                ctx.pad_lo[step] = r.rotate_left(7) ^ {pre_c0}u64;
-            }}
-            if step < {pad_hi_len}usize {{
-                ctx.pad_hi[step] = r.rotate_right(11) ^ {pre_c1}u64;
-            }}
-            if step < {vault_steps}usize {{
-                let vp = read_rdata_pool(step & 3, (step >> 2) & 31);
-                let next_vk = ctx
-                    .vault_key_val()
-                    .rotate_left(13)
-                    .wrapping_mul(black_box({vault_step_mul}u64) | 1)
-                    ^ vp
-                    ^ (step as u64).wrapping_mul(black_box({vault_init}u64));
-                ctx.set_pair(14, next_vk, r.swap_bytes(), 19);
-                let tk_step_delta = next_vk.rotate_left(((step as u32) & 31) + 1) ^ vp.rotate_right(11);
-                ctx.set_pair(0, ctx.trans_key_val() ^ tk_step_delta, r.rotate_left(7), 11);
-                if step < 256usize {{
-                    let (bias, rot) = ctx.reg_bias(step);
-                    let phys = (step ^ ctx.slot_salt()) & 255usize;
-                    let ia = ctx.idx_a(phys);
-                    let ib = ctx.idx_b(phys);
-                    ctx.arena[ib] = r;
-                    ctx.arena[ia] = bias ^ r.rotate_left(rot);
-                }} else if step < 384usize {{
-                    let sp = step - 256usize;
-                    let (bias, rot, phys) = ctx.stk_params(sp);
-                    let ia = ctx.idx_a(phys);
-                    let ib = ctx.idx_b(phys);
-                    ctx.arena[ib] = r;
-                    ctx.arena[ia] = bias ^ r.rotate_left(rot);
-                }} else {{
-                    let ch_slot = 384usize + ((step - 384usize) & 127usize);
-                    let ia = ctx.idx_a(ch_slot);
-                    let ib = ctx.idx_b(ch_slot);
-                    ctx.arena[ib] = r;
-                    ctx.arena[ia] = r.rotate_left(17) ^ {pre_c4}u64;
-                }}
-                for sub in 0..2usize {{
-                    let pos = ((step << 1) | sub) & 1023usize;
-                    let phys = (pos ^ ctx.frame_salt()) & 1023usize;
-                    let mask_b = ((r >> (sub * 16)) & 0xff) as u8;
-                    let bias = (ctx.frm_bias_seed_val().rotate_left((pos & 63) as u32) as u8).wrapping_add(pos as u8);
-                    ctx.frm_b[phys] = mask_b;
-                    ctx.frm_a[phys] = bias ^ mask_b.rotate_left(3);
-                }}
-            }} else {{
-                ctx.re_share_header(r, (step & 7) as u8);
-                let slot = 384usize + ((step ^ (r as usize)) & 127usize);
+            lfsr9 = (lfsr9 >> 1) ^ ((0usize.wrapping_sub(lfsr9 & 1usize)) & 0x{galois9_tap:x}usize);
+            p_tok = p_tok.wrapping_add(black_box({p_step_add}u64)).wrapping_mul(black_box({p_step_mul}u64));
+        }}
+        let enc0 = core::ptr::read_volatile(ANTIREA_CLUSTER_LUT.as_ptr());
+        let dec0 = enc0 ^ ctx.sbox_byte_unmask(0usize, {cluster_lut_salt}u64);
+        ctx.route_lut[0] = dec0 ^ ctx.route_slot_mask(0usize);
+        let mut r_lut_tok = black_box({r_lut_init_tok}u64);
+        let mut lfsr8 = ((e_lo as usize) & 255usize) | 1usize;
+        while black_box(r_lut_tok) != black_box({r_lut_end_tok}u64) {{
+            let enc_c = core::ptr::read_volatile(ANTIREA_CLUSTER_LUT.as_ptr().add(lfsr8));
+            let dec_c = enc_c ^ ctx.sbox_byte_unmask(lfsr8, {cluster_lut_salt}u64);
+            ctx.route_lut[lfsr8] = dec_c ^ ctx.route_slot_mask(lfsr8);
+            let extra_scrub = (r_lut_tok >> 41) & 31u64;
+            if extra_scrub == 0u64 {{
+                r_state = r_state.rotate_left(13).wrapping_mul(black_box({pre_c3}u64) | 1).wrapping_add(lfsr8 as u64);
+                ctx.re_share_header(r_state, (lfsr8 & 7) as u8);
+                let slot = 384usize + (((lfsr9 ^ lfsr8) ^ (r_state as usize)) & 127usize);
                 let ia = ctx.idx_a(slot);
-                ctx.arena[ia] ^= r.rotate_left(13);
+                ctx.arena[ia] ^= r_state.rotate_left(13);
             }}
+            lfsr8 = (lfsr8 >> 1) ^ ((0usize.wrapping_sub(lfsr8 & 1usize)) & 0x{galois8_tap:x}usize);
+            r_lut_tok = r_lut_tok.wrapping_add(black_box({p_step_add}u64)).wrapping_mul(black_box({p_step_mul}u64));
+        }}
+        let init_seal = ctx.epilogue_seal();
+        ctx.set_pair(15, init_sealed ^ init_seal.rotate_left(19), e_hi.rotate_left(13), HDR_PAIR_ROTS[15]);
+    }}
+
+    #[inline(always)]
+    pub fn init_prologue_slot(&mut self, idx512: usize, r: u64) {{
+        self.pad_lo[idx512 % {pad_lo_len}usize] = r.rotate_left(7) ^ {pre_c0}u64;
+        self.pad_hi[idx512 % {pad_hi_len}usize] = r.rotate_right({vr13}u32) ^ {pre_c1}u64;
+        self.arena[{arena_chaff_base}usize + (idx512 % {arena_extra}usize)] = r.rotate_right({vr9}u32) ^ {pre_c2}u64;
+        let low7 = idx512 & 127usize;
+        let q_sel = ((idx512 >> 7) & 3usize) ^ {q_flip}usize;
+        if (q_sel & 2usize) == 0usize {{
+            let reg_slot = ((q_sel & 1usize) << 7) | low7;
+            let (bias, rot) = self.reg_bias(reg_slot);
+            let phys = (reg_slot ^ self.slot_salt()) & 255usize;
+            let ia = self.idx_a(phys);
+            let ib = self.idx_b(phys);
+            self.arena[ib] = r;
+            self.arena[ia] = bias ^ r.rotate_left(rot);
+        }} else if (q_sel & 1usize) == 0usize {{
+            let (bias, rot, phys) = self.stk_params(low7);
+            let ia = self.idx_a(phys);
+            let ib = self.idx_b(phys);
+            self.arena[ib] = r;
+            self.arena[ia] = bias ^ r.rotate_left(rot);
+        }} else {{
+            let ch_slot = 384usize + low7;
+            let ia = self.idx_a(ch_slot);
+            let ib = self.idx_b(ch_slot);
+            self.arena[ib] = r;
+            self.arena[ia] = r.rotate_left({vr14}u32) ^ {pre_c4}u64;
+        }}
+        for sub in 0..2usize {{
+            let pos = ((idx512 << 1) | sub) & 1023usize;
+            let phys = (pos ^ self.frame_salt()) & 1023usize;
+            let mask_b = ((r >> (sub * 16)) & 0xff) as u8;
+            let bias = (self.frm_bias_seed_val().rotate_left((pos & 63) as u32) as u8).wrapping_add(pos as u8);
+            let init_b = if (pos >> 9) == 0usize {{
+                0u8
+            }} else {{
+                (((r >> (sub * 24 + 8)) ^ (self.vault_key_val() >> ((pos & 7) * 8))) & 0xff) as u8 | 1u8
+            }};
+            self.frm_b[phys] = mask_b;
+            self.frm_a[phys] = init_b.wrapping_add(bias) ^ mask_b.rotate_left(3);
         }}
     }}
 
     #[inline(always)]
     pub fn trans_key_val(&self) -> u64 {{
-        self.get_pair(0, 11)
+        self.get_pair(0, HDR_PAIR_ROTS[0])
     }}
 
     #[inline(always)]
     pub fn cluster_mask_val(&self) -> u64 {{
-        self.get_pair(1, 19)
+        self.get_pair(1, HDR_PAIR_ROTS[1])
     }}
 
     #[inline(always)]
     pub fn halt_magic_val(&self) -> u64 {{
-        self.get_pair(2, 23)
+        self.get_pair(2, HDR_PAIR_ROTS[2])
     }}
 
     #[inline(always)]
     pub fn halt_bias_val(&self) -> u64 {{
-        self.get_pair(3, 27)
+        self.get_pair(3, HDR_PAIR_ROTS[3])
     }}
 
     #[inline(always)]
     pub fn xform_val(&self) -> u64 {{
-        self.get_pair(4, 15)
+        self.get_pair(4, HDR_PAIR_ROTS[4])
     }}
 
     #[inline(always)]
     pub fn ret0_val(&self) -> u64 {{
-        self.get_pair(5, 17)
+        self.get_pair(5, HDR_PAIR_ROTS[5])
     }}
 
     #[inline(always)]
     pub fn reg_bias_seed_val(&self) -> u64 {{
-        self.get_pair(6, 7)
+        self.get_pair(6, HDR_PAIR_ROTS[6])
     }}
 
     #[inline(always)]
     pub fn stk_bias_seed_val(&self) -> u64 {{
-        self.get_pair(7, 13)
+        self.get_pair(7, HDR_PAIR_ROTS[7])
     }}
 
     #[inline(always)]
     pub fn frm_bias_seed_val(&self) -> u64 {{
-        self.get_pair(8, 17)
+        self.get_pair(8, HDR_PAIR_ROTS[8])
     }}
 
     #[inline(always)]
     pub fn ret1_val(&self) -> u64 {{
-        self.get_pair(9, 29)
+        self.get_pair(9, HDR_PAIR_ROTS[9])
     }}
 
     #[inline(always)]
     pub fn perm_val(&self) -> u64 {{
-        self.get_pair(10, 29)
+        self.get_pair(10, HDR_PAIR_ROTS[10])
     }}
 
     #[inline(always)]
     pub fn gate0_val(&self) -> u64 {{
-        self.get_pair(12, 21)
+        self.get_pair(12, HDR_PAIR_ROTS[12])
     }}
 
     #[inline(always)]
     pub fn gate1_val(&self) -> u64 {{
-        self.get_pair(13, 25)
+        self.get_pair(13, HDR_PAIR_ROTS[13])
     }}
 
     #[inline(always)]
     pub fn vault_key_val(&self) -> u64 {{
-        self.get_pair(14, 19)
+        self.get_pair(14, HDR_PAIR_ROTS[14])
     }}
 
     #[inline(always)]
     pub fn ent_lo_val(&self) -> u64 {{
-        self.get_pair(16usize + (self.hot_bank() << 2), 7)
+        self.get_pair(16usize + (self.hot_bank() << 2), HDR_PAIR_ROTS[16])
     }}
 
     #[inline(always)]
     pub fn ent_hi_val(&self) -> u64 {{
-        self.get_pair(17usize + (self.hot_bank() << 2), 23)
+        self.get_pair(17usize + (self.hot_bank() << 2), HDR_PAIR_ROTS[17])
     }}
 
     #[inline(always)]
     pub fn xmm0_val(&self) -> u64 {{
-        self.get_pair(18usize + (self.hot_bank() << 2), 13)
+        self.get_pair(18usize + (self.hot_bank() << 2), HDR_PAIR_ROTS[18])
     }}
 
     #[inline(always)]
     pub fn xmm1_val(&self) -> u64 {{
-        self.get_pair(19usize + (self.hot_bank() << 2), 29)
+        self.get_pair(19usize + (self.hot_bank() << 2), HDR_PAIR_ROTS[19])
     }}
 
     #[inline(always)]
@@ -1925,7 +2534,7 @@ impl VmCtx {{
     #[inline(always)]
     pub fn xform_cluster(&self, c: usize) -> u64 {{
         let base = match c & 7 {{
-            0 => self.xform_val().wrapping_add(self.vault_key_val().rotate_left(11)),
+            0 => self.xform_val().wrapping_add(self.vault_key_val().rotate_left({vr8}u32)),
             1 => self.trans_key_val().rotate_left(7) ^ self.ent_lo_val().wrapping_add(self.xform_val()),
             2 => self.cluster_mask_val().rotate_left(13).wrapping_sub(self.xmm0_val() ^ self.xform_val()),
             3 => (self.halt_magic_val().rotate_left(19) ^ self.vault_key_val()).wrapping_add(self.xform_val()),
@@ -1942,9 +2551,50 @@ impl VmCtx {{
     pub fn advance_xform(&mut self, salt: u64, mode: u8) {{
         let r = self.xmm0_val() ^ self.ent_lo_val().rotate_left(((mode & 3) * 5 + 3) as u32) ^ black_box(salt);
         let cur = self.xform_val();
-        let next = cur.rotate_left(17).wrapping_add(r | 1);
-        self.set_pair(4, next, r, 15);
-        self.set_pair(15, r.rotate_left(7), r.swap_bytes(), 19);
+        let next = cur.rotate_left({vr9}u32).wrapping_add(r | 1);
+        self.set_pair(4, next, r, HDR_PAIR_ROTS[4]);
+        for k in 0..2usize {{
+            let reg_idx = ((r >> (k * 13 + 5)) as usize ^ (mode as usize).wrapping_mul(17)) & 255usize;
+            let (_, rot) = self.reg_bias(reg_idx);
+            let phys = (reg_idx ^ self.slot_salt()) & 255usize;
+            let ia = self.idx_a(phys);
+            let ib = self.idx_b(phys);
+            let delta = r.rotate_left(((k as u32) * 19 + 7) & 63) ^ next;
+            self.arena[ib] ^= delta;
+            self.arena[ia] ^= delta.rotate_left(rot);
+        }}
+        let f_off = 512usize | (((r >> 21) as usize) & 504usize);
+        let f_prev = self.sample_epilogue_frame(f_off);
+        let f_next = (f_prev.rotate_left(13).wrapping_add(next ^ self.vault_key_val())) | 1u64;
+        self.mutate_epilogue_frame(f_off, f_next, salt ^ r);
+        let hb = self.halt_bias_val();
+        let seal = self.epilogue_seal();
+        let tk = self.trans_key_val();
+        let cm = self.cluster_mask_val();
+        let g0 = self.gate0_val();
+        let g1 = self.gate1_val();
+        let post_st: [u64; 4] = [
+            seal ^ g0.rotate_left({vr10}u32) ^ hb,
+            hb.rotate_left(19) ^ g1 ^ tk.rotate_right(7),
+            tk ^ seal.rotate_right(13) ^ self.reg_bias_seed_val(),
+            cm ^ self.stk_bias_seed_val().rotate_left(23) ^ g0.swap_bytes(),
+        ];
+        if self.st_ptr != 0 {{
+            unsafe {{
+                let sp = self.st_ptr as *mut u64;
+                core::ptr::write_volatile(sp.add(0), post_st[0]);
+                core::ptr::write_volatile(sp.add(1), post_st[1]);
+                core::ptr::write_volatile(sp.add(2), post_st[2]);
+                core::ptr::write_volatile(sp.add(3), post_st[3]);
+            }}
+        }}
+        let cur_val = self.ret0_val().wrapping_add(self.ret1_val()) ^ g1;
+        let sealed_val = seal_return_feistel(cur_val, g0, &post_st);
+        self.set_pair(15, sealed_val ^ seal.rotate_left(19), r.swap_bytes(), HDR_PAIR_ROTS[15]);
+        let p0 = r.rotate_left({vr11}u32) ^ next;
+        let p1 = (cur_val ^ g1).wrapping_sub(p0);
+        self.set_pair(5, p0, r.rotate_right(7), HDR_PAIR_ROTS[5]);
+        self.set_pair(9, p1, next.rotate_left(13), HDR_PAIR_ROTS[9]);
     }}
 
     #[inline(always)]
@@ -1969,7 +2619,7 @@ impl VmCtx {{
 
     #[inline(always)]
     pub fn get_sp(&self) -> usize {{
-        (self.get_pair(11, 13) as usize)
+        (self.get_pair(11, HDR_PAIR_ROTS[11]) as usize)
             .wrapping_sub(self.stk_add())
             & 127usize
     }}
@@ -1977,7 +2627,7 @@ impl VmCtx {{
     #[inline(always)]
     pub fn set_sp(&mut self, sp: usize, mask: usize) {{
         let val = ((sp & 127usize).wrapping_add(self.stk_add())) as u64;
-        self.set_pair(11, val, mask as u64, 13);
+        self.set_pair(11, val, mask as u64, HDR_PAIR_ROTS[11]);
     }}
 
     #[inline(always)]
@@ -1993,7 +2643,7 @@ impl VmCtx {{
         let m0 = (black_box(tk_share) ^ black_box(site_salt) ^ fp_w) | 1;
         let m1 = (black_box(cm_share) ^ black_box(site_salt).rotate_left(19)) | 1;
         let mul = (m0 as u128) | ((m1 as u128) << 64);
-        let a0 = black_box(hm_share) ^ black_box(site_salt).rotate_right(13) ^ fp_w.rotate_left(11);
+        let a0 = black_box(hm_share) ^ black_box(site_salt).rotate_right(13) ^ fp_w.rotate_left({vr12}u32);
         let a1 = black_box(rb_share) ^ black_box(site_salt).swap_bytes();
         let addend = (a0 as u128) | ((a1 as u128) << 64);
         let next128 = cur128.wrapping_mul(mul).wrapping_add(addend);
@@ -2005,31 +2655,33 @@ impl VmCtx {{
             let va = _mm_set_epi64x(hi as i64, lo as i64);
             let vb = _mm_set_epi64x(x0 as i64, x1 as i64);
             let vx = match mode & 3 {{
-                0 => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0b10_11_00_01)),
-                1 => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0b01_00_11_10)),
-                2 => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0b00_11_10_01)),
-                _ => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0b11_01_00_10)),
+                0 => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0x{fe_shuf0:02x})),
+                1 => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0x{fe_shuf1:02x})),
+                2 => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0x{fe_shuf2:02x})),
+                _ => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0x{fe_shuf3:02x})),
             }};
             let vs = match mode & 3 {{
-                0 => _mm_xor_si128(_mm_slli_epi64(vx, 7), _mm_srli_epi64(vx, 9)),
-                1 => _mm_xor_si128(_mm_slli_epi64(vx, 5), _mm_srli_epi64(vx, 11)),
-                2 => _mm_xor_si128(_mm_slli_epi64(vx, 13), _mm_srli_epi64(vx, 3)),
-                _ => _mm_xor_si128(_mm_slli_epi64(vx, 15), _mm_srli_epi64(vx, 5)),
+                0 => _mm_xor_si128(_mm_slli_epi64(vx, {fe_sl0}), _mm_srli_epi64(vx, {fe_sr0})),
+                1 => _mm_xor_si128(_mm_slli_epi64(vx, {fe_sl1}), _mm_srli_epi64(vx, {fe_sr1})),
+                2 => _mm_xor_si128(_mm_slli_epi64(vx, {fe_sl2}), _mm_srli_epi64(vx, {fe_sr2})),
+                _ => _mm_xor_si128(_mm_slli_epi64(vx, {fe_sl3}), _mm_srli_epi64(vx, {fe_sr3})),
             }};
             let vout = _mm_add_epi64(vx, vs);
             let r0 = _mm_cvtsi128_si64(vout) as u64;
-            let r1 = _mm_cvtsi128_si64(_mm_shuffle_epi32(vout, 0b01_00_11_10)) as u64;
+            let r1 = _mm_cvtsi128_si64(_mm_srli_si128(vout, 8)) as u64;
             let m_elo = r0 ^ site_salt;
-            let m_ehi = r1 ^ site_salt.rotate_left(17);
-            let m_x0 = lo ^ site_salt.rotate_right(11);
+            let m_ehi = r1 ^ site_salt.rotate_left({vr13}u32);
+            let m_x0 = lo ^ site_salt.rotate_right({vr14}u32);
             let m_x1 = hi ^ site_salt.swap_bytes();
             let next_bank = (self.hot_bank().wrapping_add(1) ^ (((lo ^ hi) as usize) & 2usize)) & 3usize;
-            self.hdr_route = (self.hdr_route & !(3u64 << 5)) | ((next_bank as u64) << 5);
+            let cur_hsalt = (self.hdr_route ^ Self::hdr_blind7(self.hdr_route)) & 31u64;
+            let next_upper = (self.hdr_route ^ lo.rotate_left(23)) & black_box(0xffff_ffff_ffff_ff80u64);
+            self.hdr_route = next_upper | ((cur_hsalt | ((next_bank as u64) << 5)) ^ Self::hdr_blind7(next_upper));
             let base_id = 16usize + (next_bank << 2);
-            self.set_pair(base_id, lo, m_elo, 7);
-            self.set_pair(base_id + 1, hi, m_ehi, 23);
-            self.set_pair(base_id + 2, r0, m_x0, 13);
-            self.set_pair(base_id + 3, r1, m_x1, 29);
+            self.set_pair(base_id, lo, m_elo, HDR_PAIR_ROTS[16]);
+            self.set_pair(base_id + 1, hi, m_ehi, HDR_PAIR_ROTS[17]);
+            self.set_pair(base_id + 2, r0, m_x0, HDR_PAIR_ROTS[18]);
+            self.set_pair(base_id + 3, r1, m_x1, HDR_PAIR_ROTS[19]);
             let rot_amt = ((((lo ^ hi.rotate_left(19)).wrapping_mul(m0)) >> 58) as u32 & 31) + 1;
             r0 ^ r1.rotate_left(rot_amt)
         }}
@@ -2037,56 +2689,33 @@ impl VmCtx {{
 
     #[inline(always)]
     pub fn re_share_header(&mut self, r: u64, mode: u8) {{
-        // V11-M3 + V14-M3: 8-way entropy-selected 3-share mixed-modulus header subset re-sharer
-        self.hdr_route ^= r & !127u64;
+        // V19-M3: GF(2)-homomorphic full-64-bit dynamic blinding of hdr_route (mutates low 7 bits on every step)
+        let du = r & black_box(0xffff_ffff_ffff_ff80u64);
+        self.hdr_route ^= du | Self::hdr_blind7(du);
         let hb_base = 16usize + (self.hot_bank() << 2);
-        let sel = (((mode as u64) ^ r ^ (r >> 17)) & 7) as u8;
+        let sel = (((mode as u64).wrapping_mul(3) ^ r.rotate_right(5) ^ (r >> {reshare_sh}u32)) & 3) as u8;
         match sel {{
             0 => {{
                 self.arg_b[0] ^= r.rotate_left(21);
                 self.arg_a[0] ^= r.rotate_left(34);
-                self.xor_pair(0, r, 11);
-                self.xor_pair(3, r.rotate_left(7), 27);
-                self.xor_pair(12, r.rotate_left(13), 21);
+                self.xor_pair(0, r, HDR_PAIR_ROTS[0]);
+                self.xor_pair(12, r.rotate_left(13), HDR_PAIR_ROTS[12]);
             }}
             1 => {{
-                self.arg_b[1] ^= r.rotate_left(11);
-                self.arg_a[1] ^= r.rotate_left(40);
-                self.xor_pair(1, r.rotate_left(5), 19);
-                self.xor_pair(4, r.rotate_left(11), 15);
-                self.xor_pair(13, r.rotate_left(19), 25);
+                self.arg_b[1] ^= r.rotate_left(15);
+                self.arg_a[1] ^= r.rotate_left(44);
+                self.xor_pair(1, r.rotate_left(5), HDR_PAIR_ROTS[1]);
+                self.xor_pair(13, r.rotate_left(19), HDR_PAIR_ROTS[13]);
             }}
             2 => {{
-                self.xor_pair(11, r.rotate_left(7), 13);
-                self.xor_pair(2, r.rotate_left(9), 23);
-                self.xor_pair(14, r.rotate_left(23), 19);
-                self.xor_pair(hb_base + 2, r.rotate_left(17), 13);
-            }}
-            3 => {{
-                self.xor_pair(10, r.rotate_left(19), 29);
-                self.xor_pair(9, r.rotate_left(11), 29);
-                self.xor_pair(hb_base + 3, r.rotate_left(5), 29);
-            }}
-            4 => {{
-                self.xor_pair(6, r.rotate_left(3), 7);
-                self.xor_pair(5, r.rotate_left(15), 17);
-                self.xor_pair(hb_base, r.rotate_left(9), 7);
-            }}
-            5 => {{
-                self.xor_pair(7, r.rotate_left(7), 13);
-                self.xor_pair(9, r.rotate_left(13), 29);
-                self.xor_pair(hb_base + 1, r.rotate_left(19), 23);
-            }}
-            6 => {{
-                self.xor_pair(8, r.rotate_left(13), 17);
-                self.xor_pair(5, r.rotate_left(23), 17);
-                self.xor_pair(12, r.rotate_left(19), 21);
-                self.xor_pair(14, r.rotate_left(11), 19);
+                self.xor_pair(2, r.rotate_left(9), HDR_PAIR_ROTS[2]);
+                self.xor_pair(14, r.rotate_left(23), HDR_PAIR_ROTS[14]);
+                self.xor_pair(hb_base + 2, r.rotate_left({vr8}u32), HDR_PAIR_ROTS[18]);
             }}
             _ => {{
-                self.xor_pair(0, r.rotate_left(7), 11);
-                self.xor_pair(2, r.rotate_left(3), 23);
-                self.xor_pair(13, r.rotate_left(23), 25);
+                self.xor_pair(4, r.rotate_left({vr9}u32), HDR_PAIR_ROTS[4]);
+                self.xor_pair(6, r.rotate_left(3), HDR_PAIR_ROTS[6]);
+                self.xor_pair(hb_base + 1, r.rotate_left(19), HDR_PAIR_ROTS[17]);
             }}
         }}
     }}
@@ -2100,7 +2729,12 @@ impl VmCtx {{
 
     #[inline(always)]
     pub fn cluster_of(&self, tok: u64) -> usize {{
-        ((tok ^ tok.rotate_right(19) ^ tok.rotate_left(7) ^ self.cluster_mask_val()) & 15) as usize
+        let x = tok
+            ^ tok.rotate_right({cluster_rot_a}u32)
+            ^ tok.rotate_left({cluster_rot_b}u32)
+            ^ self.cluster_mask_val();
+        let idx = (((x >> 37) ^ (x >> 19) ^ (x >> 5) ^ x) & 0xff) as usize;
+        (self.route_lut[idx] ^ self.route_slot_mask(idx)) as usize
     }}
 
     #[inline(always)]
@@ -2114,11 +2748,22 @@ impl VmCtx {{
         mul_odd: u64,
         site_salt: u64,
         mode: u8,
+        arm_bias: u8,
     ) -> u64 {{
-        let e = self.fast_entropy(site_salt, mode);
-        self.re_share_header(e, mode);
+        let e = if arm_bias < 2u8 && ((cur_tok >> 13) & 3u64) != 0u64 {{
+            self.xmm0_val().rotate_left(9).wrapping_mul(site_salt | 1) ^ self.ent_lo_val()
+        }} else {{
+            let fe = self.fast_entropy(site_salt, mode);
+            self.re_share_header(fe, mode);
+            fe
+        }};
         let tk = self.trans_key_val();
-        let (delta, mul) = if (e & 1) == 0 {{
+        let pick_odd = match arm_bias {{
+            0 => (e & 3) == 0,
+            1 => (e & 3) != 0,
+            _ => (e & 1) != 0,
+        }};
+        let (delta, mul) = if !pick_odd {{
             (delta_even, mul_even)
         }} else {{
             (delta_odd, mul_odd)
@@ -2162,7 +2807,8 @@ impl VmCtx {{
     #[inline(always)]
     pub fn reg_bias(&self, idx: usize) -> (u64, u32) {{
         let b = self.reg_bias_seed_val().wrapping_mul((idx as u64).wrapping_mul(3) | 1);
-        let r = (((idx as u32).wrapping_mul(7) ^ 11) & 31) + 1;
+        let r_raw = (((idx as u32).wrapping_mul(7) ^ 13) & 31) + 1;
+        let r = if r_raw == 11 || r_raw == 17 {{ {vr10}u32 }} else {{ r_raw }};
         (b, r)
     }}
 
@@ -2171,7 +2817,8 @@ impl VmCtx {{
         let s = sp & 127usize;
         let phys = 256usize + ((s.wrapping_mul(self.stk_mul()).wrapping_add(self.stk_add())) & 127usize);
         let bias = self.stk_bias_seed_val().wrapping_mul((s as u64).wrapping_mul(5) | 1);
-        let rot = (((s as u32).wrapping_mul(9) ^ 5) & 31) + 1;
+        let r_raw = (((s as u32).wrapping_mul(9) ^ 5) & 31) + 1;
+        let rot = if r_raw == 11 || r_raw == 17 {{ {vr11}u32 }} else {{ r_raw }};
         (bias, rot, phys)
     }}
 
@@ -2217,7 +2864,7 @@ impl VmCtx {{
         let idx = 384usize + (chaff_idx & 127usize);
         let ia = self.idx_a(idx);
         let ib = self.idx_b(idx);
-        self.arena[ib] = m ^ val.rotate_left(11);
+        self.arena[ib] = m ^ val.rotate_left({vr11}u32);
         self.arena[ia] = val.wrapping_add(m.swap_bytes());
     }}
 
@@ -2230,24 +2877,43 @@ impl VmCtx {{
         nfuncs: u32,
         gate: u64,
         st_ptr: *mut u64,
+        transport_key: u64,
     ) {{
-        let n = (nargs as usize).min(8usize);
-        let a0 = if n > 0 && !args_ptr.is_null() {{ (*args_ptr.add(0)) as u32 }} else {{ 0u32 }};
-        let a1 = if n > 1 && !args_ptr.is_null() {{ (*args_ptr.add(1)) as u32 }} else {{ 0u32 }};
+        let n = ((nargs & 0xffu32) as usize).min(8usize);
+        let k0_mask = if transport_key != 0u64 {{ transport_key.rotate_left(7) }} else {{ 0u64 }};
+        let k1_mask = if transport_key != 0u64 {{ transport_key.rotate_left(26) }} else {{ 0u64 }};
+        let a0 = if n > 0 && !args_ptr.is_null() {{ ((*args_ptr.add(0)) ^ k0_mask) as u32 }} else {{ 0u32 }};
+        let a1 = if n > 1 && !args_ptr.is_null() {{ ((*args_ptr.add(1)) ^ k1_mask) as u32 }} else {{ 0u32 }};
         Self::init_in_place(ptr, a0, a1, gate, 0u64, st_ptr);
         (*ptr).funcs_ptr = funcs_ptr as usize;
         (*ptr).nfuncs = nfuncs;
         let ctx = &mut *ptr;
         let rb = ctx.reg_bias_seed_val();
         if !args_ptr.is_null() {{
+            let stack_delta = (args_ptr as usize).wrapping_sub(ptr as usize);
+            let scrub_caller_stack = stack_delta > 0usize && stack_delta < 65536usize;
             for k in 0..n {{
                 let slot = k & 7usize;
-                let val = *args_ptr.add(slot);
+                let t_mask = if transport_key != 0u64 {{
+                    transport_key.rotate_left(((slot as u32).wrapping_mul(19) + 7) & 63)
+                }} else {{
+                    0u64
+                }};
+                let mut blinded = ((*args_ptr.add(slot)) ^ t_mask) ^ black_box({arg_blind_mask}u64);
                 let mk = ctx.fast_entropy({pre_c1}u64 ^ (slot as u64), (slot & 3) as u8);
                 let rot = ((slot as u32).wrapping_mul(16) + 13) & 63;
                 let bias_rot = (slot as u32).wrapping_mul(7);
                 ctx.arg_b[slot] = mk;
-                ctx.arg_a[slot] = val.wrapping_add(rb.rotate_left(bias_rot)) ^ mk.rotate_left(rot);
+                ctx.arg_a[slot] = (blinded ^ black_box({arg_blind_mask}u64))
+                    .wrapping_add(rb.rotate_left(bias_rot))
+                    ^ mk.rotate_left(rot);
+                core::ptr::write_volatile(&mut blinded, 0u64);
+                if scrub_caller_stack {{
+                    core::ptr::write_volatile(
+                        (args_ptr as *mut u64).add(slot),
+                        mk ^ rb.rotate_left((bias_rot ^ 13) & 63),
+                    );
+                }}
             }}
         }}
     }}
@@ -2338,7 +3004,7 @@ impl VmCtx {{
         let chaff_sp = 384usize + (((m >> 17) as usize) & 127usize);
         let ca = self.idx_a(chaff_sp);
         let cb = self.idx_b(chaff_sp);
-        self.arena[cb] = m.rotate_left(11);
+        self.arena[cb] = m.rotate_left({vr12}u32);
         self.arena[ca] = m ^ bias;
         let decoy_sp = 384usize + (((m >> 31) as usize) & 127usize);
         let da = self.idx_a(decoy_sp);
@@ -2420,73 +3086,101 @@ impl VmCtx {{
     }}
 
     #[inline(always)]
+    pub fn sample_epilogue_frame(&self, base_off: usize) -> u64 {{
+        let f_salt = self.frame_salt();
+        let f_seed = self.frm_bias_seed_val();
+        let p0 = (base_off & 1023usize) | 512usize;
+        let p1 = ((base_off + 3) & 1023usize) | 512usize;
+        let p2 = ((base_off + 5) & 1023usize) | 512usize;
+        let p3 = ((base_off + 7) & 1023usize) | 512usize;
+        let ph0 = (p0 ^ f_salt) & 1023usize;
+        let ph1 = (p1 ^ f_salt) & 1023usize;
+        let ph2 = (p2 ^ f_salt) & 1023usize;
+        let ph3 = (p3 ^ f_salt) & 1023usize;
+        let b0 = (self.frm_a[ph0] ^ self.frm_b[ph0].rotate_left(3))
+            .wrapping_sub((f_seed.rotate_left((p0 & 63) as u32) as u8).wrapping_add(p0 as u8)) as u64;
+        let b1 = (self.frm_a[ph1] ^ self.frm_b[ph1].rotate_left(3))
+            .wrapping_sub((f_seed.rotate_left((p1 & 63) as u32) as u8).wrapping_add(p1 as u8)) as u64;
+        let b2 = (self.frm_a[ph2] ^ self.frm_b[ph2].rotate_left(3))
+            .wrapping_sub((f_seed.rotate_left((p2 & 63) as u32) as u8).wrapping_add(p2 as u8)) as u64;
+        let b3 = (self.frm_a[ph3] ^ self.frm_b[ph3].rotate_left(3))
+            .wrapping_sub((f_seed.rotate_left((p3 & 63) as u32) as u8).wrapping_add(p3 as u8)) as u64;
+        let w32 = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24) | 1u64;
+        w32.wrapping_mul(black_box({pre_c3}u64) | 1) ^ w32.rotate_left(31)
+    }}
+
+    #[inline(always)]
+    pub fn mutate_epilogue_frame(&mut self, base_off: usize, val: u64, mask: u64) {{
+        let f_salt = self.frame_salt();
+        let f_seed = self.frm_bias_seed_val();
+        let p0 = (base_off & 1023usize) | 512usize;
+        let p1 = ((base_off + 3) & 1023usize) | 512usize;
+        let p2 = ((base_off + 5) & 1023usize) | 512usize;
+        let p3 = ((base_off + 7) & 1023usize) | 512usize;
+        let ph0 = (p0 ^ f_salt) & 1023usize;
+        let ph1 = (p1 ^ f_salt) & 1023usize;
+        let ph2 = (p2 ^ f_salt) & 1023usize;
+        let ph3 = (p3 ^ f_salt) & 1023usize;
+        let m0 = (mask & 0xff) as u8;
+        let m1 = ((mask >> 13) & 0xff) as u8;
+        let m2 = ((mask >> 27) & 0xff) as u8;
+        let m3 = ((mask >> 41) & 0xff) as u8;
+        let v0 = ((val & 0xff) as u8) | 1u8;
+        let v1 = (((val >> 8) & 0xff) as u8) | 1u8;
+        let v2 = (((val >> 16) & 0xff) as u8) | 1u8;
+        let v3 = (((val >> 24) & 0xff) as u8) | 1u8;
+        self.frm_b[ph0] = m0;
+        self.frm_a[ph0] = v0.wrapping_add((f_seed.rotate_left((p0 & 63) as u32) as u8).wrapping_add(p0 as u8)) ^ m0.rotate_left(3);
+        self.frm_b[ph1] = m1;
+        self.frm_a[ph1] = v1.wrapping_add((f_seed.rotate_left((p1 & 63) as u32) as u8).wrapping_add(p1 as u8)) ^ m1.rotate_left(3);
+        self.frm_b[ph2] = m2;
+        self.frm_a[ph2] = v2.wrapping_add((f_seed.rotate_left((p2 & 63) as u32) as u8).wrapping_add(p2 as u8)) ^ m2.rotate_left(3);
+        self.frm_b[ph3] = m3;
+        self.frm_a[ph3] = v3.wrapping_add((f_seed.rotate_left((p3 & 63) as u32) as u8).wrapping_add(p3 as u8)) ^ m3.rotate_left(3);
+    }}
+
+    #[inline(always)]
     pub fn epilogue_seal(&self) -> u64 {{
         let p = self.perm_val();
         let idx0 = (p as usize) & 255usize;
         let idx1 = ((p >> 8) as usize) & 255usize;
-        let fidx = ((p >> 16) as usize) & 1023usize;
+        let fidx = 512usize | (((p >> 16) as usize) & 504usize);
         let t0 = self.read_reg(idx0) ^ self.read_reg(idx1).rotate_left(19);
-        let f0 = self.read_frame(fidx, 8);
+        let f0 = self.sample_epilogue_frame(fidx);
         let fp0 = read_rdata_pool(idx0 & 3, (idx0 ^ idx1) & 31usize);
-        let h0 = self.trans_key_val().rotate_left(7) ^ self.cluster_mask_val().rotate_right(11);
+        let h0 = self.trans_key_val().rotate_left(7) ^ self.cluster_mask_val().rotate_right({vr13}u32);
         let h1 = self.reg_bias_seed_val().wrapping_add(self.stk_bias_seed_val().rotate_left(23));
         unsafe {{
             let va = _mm_set_epi64x((t0 ^ fp0) as i64, (f0 ^ h0) as i64);
             let vb = _mm_set_epi64x(h1 as i64, self.frm_bias_seed_val() as i64);
-            let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0b01_00_11_10));
+            let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf8:02x}));
             let lo = _mm_cvtsi128_si64(vx) as u64;
             let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
-            lo.wrapping_mul(fp0 | 1) ^ hi.rotate_left(17)
+            lo.wrapping_mul(fp0 | 1) ^ hi.rotate_left({vr14}u32)
         }}
     }}
 
     #[inline(always)]
     pub fn set_return(&mut self, val: u64, raw_halt_tok: u64, salt: u64, mode: u8) -> u64 {{
-        // V11-M1: Mutate caller stack state array in-place and seal return via 4-round bijective Feistel network
+        // V15-M2: Stage unsealed return in 3-share header pairs 5 & 9; st_ptr write and Feistel sealing execute in advance_xform on every cluster exit
         let m0 = self.fast_entropy(salt, mode);
         let m1 = m0.rotate_left(23) ^ self.xmm0_val() ^ salt.swap_bytes();
         let hb = self.halt_bias_val();
-        let seal = self.epilogue_seal();
-        let tk = self.trans_key_val();
-        let cm = self.cluster_mask_val();
-        let g0 = self.gate0_val();
         let g1 = self.gate1_val();
-        let post_st: [u64; 4] = [
-            seal ^ g0.rotate_left(11) ^ hb,
-            hb.rotate_left(19) ^ g1 ^ tk.rotate_right(7),
-            tk ^ seal.rotate_right(13) ^ self.reg_bias_seed_val(),
-            cm ^ self.stk_bias_seed_val().rotate_left(23) ^ g0.swap_bytes(),
-        ];
-        if self.st_ptr != 0 {{
-            unsafe {{
-                let sp = self.st_ptr as *mut u64;
-                core::ptr::write_volatile(sp.add(0), post_st[0]);
-                core::ptr::write_volatile(sp.add(1), post_st[1]);
-                core::ptr::write_volatile(sp.add(2), post_st[2]);
-                core::ptr::write_volatile(sp.add(3), post_st[3]);
-            }}
-        }}
-        let dyn_tok = raw_halt_tok.wrapping_add(hb);
-        let sealed_val = seal_return_feistel(val, g0, &post_st);
+        let masked_val = black_box(val) ^ g1;
         let part0 = m0 ^ m1.rotate_left(13);
-        let part1 = (sealed_val ^ dyn_tok.rotate_left(31))
-            .wrapping_sub(hb.rotate_left(13))
-            .wrapping_sub(seal)
-            .wrapping_sub(part0);
-        self.set_pair(5, part0, m0, 17);
-        self.set_pair(9, part1, m1, 29);
-        dyn_tok
+        let part1 = masked_val.wrapping_sub(part0);
+        self.set_pair(5, part0, m0, HDR_PAIR_ROTS[5]);
+        self.set_pair(9, part1, m1, HDR_PAIR_ROTS[9]);
+        raw_halt_tok.wrapping_add(hb)
     }}
 
     #[inline(always)]
     pub fn get_return(&self, halted_tok: u64) -> u64 {{
         let seal = self.epilogue_seal();
-        let s = self
-            .ret0_val()
-            .wrapping_add(self.ret1_val())
-            .wrapping_add(seal)
-            .wrapping_add(self.halt_bias_val().rotate_left(13));
-        s ^ black_box(halted_tok).rotate_left(31)
+        let sealed_val = self.get_pair(15, HDR_PAIR_ROTS[15]) ^ seal.rotate_left(19);
+        let halt_check = (black_box(halted_tok) ^ self.halted_token_val()).rotate_left(31);
+        sealed_val ^ halt_check
     }}
 
     #[inline(always)]
@@ -2500,8 +3194,8 @@ impl VmCtx {{
         let decoy = 384usize + (((e >> 23) as usize) & 127usize);
         let da = self.idx_a(decoy);
         self.arena[da] ^= e.rotate_right(13);
-        self.pad_lo[(e as usize) % {pad_lo_len}usize] ^= e.rotate_left(17);
-        self.pad_hi[((e >> 19) as usize) % {pad_hi_len}usize] ^= e.rotate_right(11);
+        self.pad_lo[(e as usize) % {pad_lo_len}usize] ^= e.rotate_left({vr15}u32);
+        self.pad_hi[((e >> 19) as usize) % {pad_hi_len}usize] ^= e.rotate_right({vr8}u32);
     }}
 
     #[inline(always)]
@@ -2539,7 +3233,7 @@ impl VmCtx {{
         let vk = self.vault_key_val();
         let w = vk
             .rotate_left(((idx as u32).wrapping_mul(7) + 3) & 63)
-            .wrapping_add((idx as u64).wrapping_mul(black_box(salt) | 1));
+            .wrapping_add(((idx as u64) + 1u64).wrapping_mul(black_box(salt) | 1));
         ((w ^ (w >> 19) ^ (w >> 41)) & 0xff) as u8
     }}
 
@@ -2846,6 +3540,7 @@ impl VmCtx {{
 }}
 
 {clusters_code}
+{bridges_code}
 #[inline(always)]
 pub fn run_ctx(ctx: &mut VmCtx) -> u64 {{
     let a0 = ctx.read_arg(0);
@@ -2878,12 +3573,12 @@ pub fn run_ctx(ctx: &mut VmCtx) -> u64 {{
         )
     }};
     let mut scrub_slot = a0 ^ a1.rotate_left(13);
-    while !ctx.is_halted(tok) {{
+{bridge_pre_calls}    while !ctx.is_halted(tok) {{
         let c = ctx.cluster_of(tok);
         tok =
 {};
     }}
-    ctx.get_return(tok) ^ (black_box(scrub_slot) & 0u64)
+{bridge_post_calls}    ctx.get_return(tok) ^ (black_box(scrub_slot) & 0u64)
 }}
 
 #[no_mangle]
@@ -2895,7 +3590,7 @@ pub extern "C" fn {dispatcher_symbol}(arg0: u32, arg1_mix: u32, st_ptr: *mut u64
     let exp_c0 = (a0 ^ black_box({caller_k0}u64)).wrapping_mul(black_box({caller_k1}u64));
     let exp_c1 = (a1 ^ black_box({caller_k1}u64)).wrapping_mul(black_box({caller_k0}u64));
     let exp_c2 = a0.wrapping_add(a1) ^ black_box({caller_k2}u64);
-    let exp_c3 = (a0 | (a1 << 32)).wrapping_add(black_box({caller_k3}u64));
+    let exp_c3 = (a0.wrapping_mul(black_box({caller_k3}u64)) ^ a1.wrapping_mul(black_box({caller_k2}u64))).wrapping_add(black_box({caller_k0}u64));
     let exp_caller = [exp_c0, exp_c1, exp_c2, exp_c3];
     let mut caller_diff = 0u64;
     if !st_ptr.is_null() {{
@@ -2917,10 +3612,12 @@ pub extern "C" fn {dispatcher_symbol}(arg0: u32, arg1_mix: u32, st_ptr: *mut u64
     }}
     let gate_diff = black_box(caller_diff);
     let mut ctx_uninit = MaybeUninit::<VmCtx>::uninit();
-    let sealed_ret = unsafe {{
+    let (sealed_ret, post_gate) = unsafe {{
         let ptr = black_box(ctx_uninit.as_mut_ptr());
         VmCtx::init_in_place(ptr, arg0, arg1, gate, gate_diff, st_ptr);
-        run_ctx(&mut *ptr)
+        let sr = run_ctx(&mut *ptr);
+        let pg = (*ptr).gate0_val();
+        (sr, pg)
     }};
     let post_st = if st_ptr.is_null() {{
         [0u64; 4]
@@ -2934,7 +3631,7 @@ pub extern "C" fn {dispatcher_symbol}(arg0: u32, arg1_mix: u32, st_ptr: *mut u64
             ]
         }}
     }};
-    let unsealed = unseal_return_feistel(sealed_ret, gate ^ gate_diff.rotate_left(19), &post_st);
+    let unsealed = unseal_return_feistel(sealed_ret, post_gate, &post_st);
     let cmask = post_st[0]
         .wrapping_mul(black_box({caller_post_mul}u64))
         .wrapping_add(post_st[2] ^ post_st[1]);
@@ -2947,23 +3644,38 @@ pub unsafe extern "C" fn run_multilang(
     nargs: u32,
     funcs_ptr: *const usize,
     nfuncs: u32,
+    key: u64,
+    bc_probe: u8,
 ) -> u64 {{
-    let n = (nargs as usize).min(8usize);
-    let a0 = if n > 0 && !args_ptr.is_null() {{ (*args_ptr.add(0)) as u32 }} else {{ 0u32 }};
-    let a1 = if n > 1 && !args_ptr.is_null() {{ (*args_ptr.add(1)) as u32 }} else {{ 0u32 }};
+    let n = ((nargs & 0xffu32) as usize).min(8usize);
+    let transport_key = if (nargs >> 16) != 0u32 {{ key }} else {{ 0u64 }};
+    let k0_mask = if transport_key != 0u64 {{ transport_key.rotate_left(7) }} else {{ 0u64 }};
+    let k1_mask = if transport_key != 0u64 {{ transport_key.rotate_left(26) }} else {{ 0u64 }};
+    let a0 = if n > 0 && !args_ptr.is_null() {{ ((*args_ptr.add(0)) ^ k0_mask) as u32 }} else {{ 0u32 }};
+    let a1 = if n > 1 && !args_ptr.is_null() {{ ((*args_ptr.add(1)) ^ k1_mask) as u32 }} else {{ 0u32 }};
     let (gate, entry_st) = compute_entry_gate_and_state(a0, a1);
     let mut st = entry_st;
     let mut ctx_uninit = MaybeUninit::<VmCtx>::uninit();
     let ptr = black_box(ctx_uninit.as_mut_ptr());
-    VmCtx::init_multilang_in_place(ptr, args_ptr, nargs, funcs_ptr, nfuncs, gate, st.as_mut_ptr());
-    let sealed = run_ctx(&mut *ptr);
+    VmCtx::init_multilang_in_place(
+        ptr,
+        args_ptr,
+        nargs,
+        funcs_ptr,
+        nfuncs,
+        gate,
+        st.as_mut_ptr(),
+        transport_key,
+    );
+    let sealed = run_ctx(&mut *ptr) ^ ((black_box(bc_probe) as u64) & 0u64);
+    let post_gate = (*ptr).gate0_val();
     let post_st = [
         core::ptr::read_volatile(st.as_ptr().add(0)),
         core::ptr::read_volatile(st.as_ptr().add(1)),
         core::ptr::read_volatile(st.as_ptr().add(2)),
         core::ptr::read_volatile(st.as_ptr().add(3)),
     ];
-    unseal_return_feistel(sealed, gate, &post_st)
+    unseal_return_feistel(sealed, post_gate, &post_st)
 }}
 "#,
         entry_trans_0.rot,
@@ -2995,6 +3707,7 @@ pub unsafe extern "C" fn run_multilang(
             caller_k2,
             caller_k3,
             caller_post_mul,
+            caller_sh,
         )?
     };
     let total_state_arms = total_nodes * 2 + 2; // +2 for 4-way entry node 0
@@ -3006,8 +3719,8 @@ pub unsafe extern "C" fn run_multilang(
     let diversification_json = format!(
         r#"{{
   "schema_version": 1,
-  "format_version": 12,
-  "engine": "antirea-rust-v12",
+  "format_version": 19,
+  "engine": "antirea-rust-v19",
   "seed": {seed},
   "dispatcher_symbol": "{dispatcher_symbol}",
   "cluster_symbols": [{}],
@@ -3018,6 +3731,23 @@ pub unsafe extern "C" fn run_multilang(
   "original_bytecode_sha256": "{raw_sha}",
   "generated_runtime_sha256": "{runtime_sha}",
   "counter_exploitation_passes": {{
+    "V19_M1_position_coupled_nonlinear_per_index_route_lut_masking": true,
+    "V19_M2_polymorphic_chacha20_sse2_pshufd_and_shift_pairs_in_fast_entropy": true,
+    "V19_M3_gf2_homomorphic_full64_dynamic_blinding_of_hdr_route": true,
+    "V18_M1_stack_proximity_volatile_caller_arg_scrubbing_and_keyed_decoy_abi": true,
+    "V18_M2_gf512_gf256_galois_lfsr_prologue_stepping_eliminating_hull_dobell_lcg": true,
+    "V18_M3_adaptive_run_locality_and_entropy_biased_parity_for_subsecond_flagship": true,
+    "V17_M1_polymorphic_hdr_pair_rotations_eliminating_fixed_11_17_53_idioms": true,
+    "V17_M2_variable_rdata_pool_and_vault_encrypted_cluster_lut_router": true,
+    "V17_M3_variable_vmctx_arena_and_quadrant_prologue_routing_and_arg_blinding": true,
+    "V17_M4_graduated_medium_tier_callable_bridges_smoothing_pdata_spectrum": true,
+    "V16_M1_polymorphic_input_packing_and_non_printable_ascii_constant_sanitizer": true,
+    "V16_M2_affine_ring_prologue_ratchet_and_irregular_chacha20_cadence": true,
+    "V16_M3_variable_cluster_count_and_per_cluster_scrambled_call_abi": true,
+    "V15_M1_feistel_rdata_pool_coupling_and_loop_free_entry_exit_stages": true,
+    "V15_M2_every_cluster_st_ptr_mutation_and_active_register_remasking": true,
+    "V15_M3_non_zero_dynamic_entropy_frame_bank_coupling": true,
+    "V15_M4_feistel_slot_scrambling_and_multifield_3share_header_decoding": true,
     "V14_M1_ephemeral_rdata_sbox_vault_and_volatile_stack_zero_wipe": true,
     "V14_M2_forced_inlined_polymorphic_leaf_helpers_zero_call_bottleneck": true,
     "V14_M3_three_share_mixed_modulus_header_split_and_prologue_vault_ratchet": true,
@@ -3071,13 +3801,13 @@ pub fn generate_multilang_rust_runtime(
         ));
     }
     let mut code = String::from(
-        "//! Generated Multi-Language Pure-Rust Runtime (antirea-rust-v12)\n#![allow(clippy::all, non_snake_case, unused_variables, dead_code)]\n\n",
+        "//! Generated Multi-Language Pure-Rust Runtime (antirea-rust-v19)\n#![allow(clippy::all, non_snake_case, unused_variables, dead_code)]\n\n",
     );
     for (idx, (blob, disp_sym)) in blobs.iter().zip(dispatcher_symbols.iter()).enumerate() {
         let slot_seed = seed.wrapping_add((idx as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
         let art = generate_rust_defense("", blob, slot_seed)?;
         code.push_str(&format!(
-            "pub mod vm_slot_{idx} {{\n{}\n}}\n\n#[no_mangle]\n#[inline(never)]\npub unsafe extern \"C\" fn {disp_sym}(\n    _bc: *const u8,\n    _bc_len: u32,\n    args_ptr: *const u64,\n    nargs: u32,\n    funcs_ptr: *const usize,\n    nfuncs: u32,\n    _key: u64,\n) -> u64 {{\n    vm_slot_{idx}::run_multilang(args_ptr, nargs, funcs_ptr, nfuncs)\n}}\n\n",
+            "pub mod vm_slot_{idx} {{\n{}\n}}\n\n#[no_mangle]\n#[inline(never)]\npub unsafe extern \"C\" fn {disp_sym}(\n    bc: *const u8,\n    bc_len: u32,\n    args_ptr: *const u64,\n    nargs: u32,\n    funcs_ptr: *const usize,\n    nfuncs: u32,\n    key: u64,\n) -> u64 {{\n    let mut bc_probe = 0u8;\n    if !bc.is_null() && bc_len > 0 {{\n        bc_probe = core::hint::black_box(core::ptr::read_volatile(bc));\n    }}\n    vm_slot_{idx}::run_multilang(args_ptr, nargs, funcs_ptr, nfuncs, key, bc_probe)\n}}\n\n",
             art.runtime_lib_rs
         ));
     }
@@ -3225,9 +3955,13 @@ mod tests {
         let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
 
         let art = generate_rust_defense(&lowered, &parsed, 131220261031).unwrap();
-        assert_eq!(art.cluster_symbols.len(), 16);
+        assert!(
+            (12..=20).contains(&art.cluster_symbols.len()) && art.cluster_symbols.len() != 16,
+            "Expected variable non-16 cluster count in 12..=20, got {}",
+            art.cluster_symbols.len()
+        );
         let unique_clusters: BTreeSet<_> = art.cluster_symbols.iter().collect();
-        assert_eq!(unique_clusters.len(), 16);
+        assert_eq!(unique_clusters.len(), art.cluster_symbols.len());
         assert!(art.total_real_nodes >= 200);
         assert_eq!(art.total_chaff_nodes, 48);
         assert_eq!(
@@ -3236,18 +3970,18 @@ mod tests {
         );
 
         // Verify V12-M1..V12-M5 & V14-M1..V14-M3: Kerckhoffs sponge CSPRNG, polymorphic VmCtx layout, 3-share header split, ephemeral vault
-        assert!(art.runtime_lib_rs.contains("pub arena: [u64; 1024]"));
+        assert!(art.runtime_lib_rs.contains("pub arena: [u64;"));
         assert!(art.runtime_lib_rs.contains("pub hdr: [u64; 96]"));
         assert!(art.runtime_lib_rs.contains("pub pad_lo: [u64;"));
         assert!(art.runtime_lib_rs.contains("pub pad_hi: [u64;"));
-        assert!(art.runtime_lib_rs.contains("ANTIREA_RDATA_POOL: [u64; 256]"));
+        assert!(art.runtime_lib_rs.contains("ANTIREA_RDATA_POOL: [u64;"));
         assert!(!art.runtime_lib_rs.contains("wrapping_mul(197usize)"));
         assert!(!art.runtime_lib_rs.contains("antirea_pre_"));
         assert!(!art.runtime_lib_rs.contains("antirea_post_"));
         assert!(art.runtime_lib_rs.contains("seal_return_feistel"));
         assert!(art.runtime_lib_rs.contains("unseal_return_feistel"));
         assert!(art.runtime_lib_rs.contains("hot_bank("));
-        assert!(art.runtime_lib_rs.contains("total_init_trips"));
+        assert!(art.runtime_lib_rs.contains("extra_scrub"));
         assert!(!art.runtime_lib_rs.contains("step == 511usize"));
         assert!(art.runtime_lib_rs.contains("hdr_ia("));
         assert!(art.runtime_lib_rs.contains("hdr_ib("));
@@ -3338,12 +4072,305 @@ mod tests {
             unique_sbox_bytes.len()
         );
 
-        // 2. Verify 3-share mixed-modulus header splitting, forced leaf inlining, and V14.2 branchless continuous prologue ratchet
+        // 2. Verify V14/V14.2/V15 properties: 3-share multi-field header splitting, Feistel slot scrambling,
+        // loop-free entry/exit stages, and continuous every-cluster st_ptr/register/frame diffusion
         assert!(art.runtime_lib_rs.contains("pub hdr: [u64; 96]"));
+        assert!(art.runtime_lib_rs.contains("pub fn hdr_feistel(x: usize) -> usize"));
+        assert!(art.runtime_lib_rs.contains("pub fn arena_feistel(x: usize) -> usize"));
         assert!(art.runtime_lib_rs.contains("pub fn hdr_ic(&self, id: usize) -> usize"));
-        assert!(art.runtime_lib_rs.contains("ab.wrapping_sub(black_box(self.hdr[ic]).rotate_right(rot2))"));
+        assert!(art.runtime_lib_rs.contains("((a ^ b).wrapping_sub(c ^ p)) ^ (b & p)"));
+        assert!(art.runtime_lib_rs.contains("let post_gate = (*ptr).gate0_val();"));
+        assert!(art.runtime_lib_rs.contains("pub fn sample_epilogue_frame(&self, base_off: usize) -> u64"));
+        assert!(art.runtime_lib_rs.contains("pub fn mutate_epilogue_frame(&mut self, base_off: usize, val: u64, mask: u64)"));
+        assert!(!art.runtime_lib_rs.contains("self.read_frame(fidx, 8)"));
+        assert!(!art.runtime_lib_rs.contains("for r in 0..black_box(8usize)"));
+        assert!(!art.runtime_lib_rs.contains("for r_inv in 0..black_box(4usize)"));
         assert!(!art.runtime_lib_rs.contains("    #[inline]\n"));
         assert!(!art.runtime_lib_rs.contains("step == 511usize"));
         assert!(!art.runtime_lib_rs.contains("step < 512usize"));
+    }
+
+    #[test]
+    fn test_v16_polymorphic_packing_ascii_sanitizer_ratchet_and_clusters() {
+        let root = repo_root();
+        let table = antirea_ir::default_opcode_table();
+        let ir_text = fs::read_to_string(
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.prevm.ll"),
+        )
+        .unwrap();
+        let lowered = antirea_ir::lower_llvm_module_functions(
+            &ir_text,
+            &["antirea_score".to_string()],
+            0x414E_5449_5245_4156,
+        )
+        .unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
+
+        let mut seen_cluster_counts = BTreeSet::new();
+        for s in 0..8u64 {
+            let art = generate_rust_defense(&lowered, &parsed, 161620261105 + s * 7919).unwrap();
+            let nc = art.cluster_symbols.len();
+            assert!(
+                (12..=20).contains(&nc) && nc != 16,
+                "Expected non-16 cluster count in 12..=20, got {nc}"
+            );
+            seen_cluster_counts.insert(nc);
+
+            // V16-M1: Fixed input-packing fingerprints eliminated
+            assert!(!art.runtime_lib_rs.contains("(a0 | (a1 << 32))"));
+            assert!(!art.runtime_lib_rs.contains("a1.rotate_left(17) ^ a0.rotate_right(11)"));
+
+            // V16-M2: Linear prologue step counter & fixed mod-8 cadence eliminated
+            assert!(!art.runtime_lib_rs.contains("for step in 0..total_init_trips"));
+            assert!(!art.runtime_lib_rs.contains("(step & 7usize) == 0usize"));
+            assert!(art.runtime_lib_rs.contains("while black_box(p_tok) != black_box("));
+            assert!(!art.runtime_lib_rs.contains("((mode as u64) ^ r ^ (r >> 17)) & 3"));
+
+            // V16-M3: Per-cluster diversified parameter lists
+            assert!(
+                art.runtime_lib_rs.contains("abi_salt: u64")
+                    || art.runtime_lib_rs.contains("(masked_tok: u64, ctx: &mut VmCtx"),
+                "Expected per-cluster scrambled ABI signatures"
+            );
+
+            // V16-M1: Check that no large u64 literal in generated source has >=3 contiguous printable ASCII bytes
+            if s == 0 {
+                for tok in art.runtime_lib_rs.split(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+                    if let Some(hex_body) = tok.strip_prefix("0x").and_then(|t| t.strip_suffix("u64")) {
+                        if let Ok(v) = u64::from_str_radix(hex_body, 16) {
+                            if v >= 0x1000 {
+                                assert!(
+                                    !has_printable_ascii_run(v, 3),
+                                    "Hex literal 0x{v:016x} contains >=3 printable ASCII run"
+                                );
+                            }
+                        }
+                    } else if let Some(dec_body) = tok.strip_suffix("u64") {
+                        if let Ok(v) = dec_body.parse::<u64>() {
+                            if v >= 0x1000 {
+                                assert!(
+                                    !has_printable_ascii_run(v, 3),
+                                    "Dec literal {v} (0x{v:016x}) contains >=3 printable ASCII run"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            seen_cluster_counts.len() >= 3,
+            "Expected >=3 distinct cluster counts across 8 seeds, got {seen_cluster_counts:?}"
+        );
+    }
+
+    #[test]
+    fn test_v17_polymorphic_rotations_variable_rdata_encrypted_router_and_bridges() {
+        let root = repo_root();
+        let table = antirea_ir::default_opcode_table();
+        let ir_text = fs::read_to_string(
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.prevm.ll"),
+        )
+        .unwrap();
+        let lowered = antirea_ir::lower_llvm_module_functions(
+            &ir_text,
+            &["antirea_score".to_string()],
+            0x414E_5449_5245_4156,
+        )
+        .unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
+
+        let mut seen_rpool_lens = BTreeSet::new();
+        let mut seen_arena_lens = BTreeSet::new();
+        let mut seen_bridge_counts = BTreeSet::new();
+
+        for s in 0..8u64 {
+            let art = generate_rust_defense(&lowered, &parsed, 171720261105 + s * 104729).unwrap();
+            let rs = &art.runtime_lib_rs;
+
+            // V17-M1: Eliminate fixed 11 / 17 / 53 (ror 11) / 47 (ror 17) rotation idioms
+            assert!(!rs.contains(".rotate_left(17)"), "Found fixed rotate_left(17) in V17 runtime");
+            assert!(!rs.contains(".rotate_left(11)"), "Found fixed rotate_left(11) in V17 runtime");
+            assert!(!rs.contains(".rotate_right(11)"), "Found fixed rotate_right(11) in V17 runtime");
+            assert!(!rs.contains(".rotate_right(17)"), "Found fixed rotate_right(17) in V17 runtime");
+            assert!(!rs.contains(".rotate_left(53)"), "Found fixed rotate_left(53) in V17 runtime");
+            assert!(!rs.contains(".rotate_left(47)"), "Found fixed rotate_left(47) in V17 runtime");
+            assert!(rs.contains("const HDR_PAIR_ROTS: [u32; 32]"));
+
+            // V17-M2: Variable-size ANTIREA_RDATA_POOL (!= 256) + Vault-encrypted ANTIREA_CLUSTER_LUT router (zero u128 mulhi)
+            assert!(!rs.contains("ANTIREA_RDATA_POOL: [u64; 256]"));
+            let rpool_prefix = "pub static ANTIREA_RDATA_POOL: [u64; ";
+            let rp_start = rs.find(rpool_prefix).unwrap() + rpool_prefix.len();
+            let rp_end = rs[rp_start..].find(']').unwrap() + rp_start;
+            let rpool_len: usize = rs[rp_start..rp_end].parse().unwrap();
+            assert!([288usize, 320, 384, 512].contains(&rpool_len), "Unexpected rpool_len={rpool_len}");
+            seen_rpool_lens.insert(rpool_len);
+
+            assert!(rs.contains("pub static ANTIREA_CLUSTER_LUT: [u8; 256] = ["));
+            assert!(!rs.contains("((h as u128).wrapping_mul("));
+
+            // V17-M3: Variable VmCtx.arena (!= 1024), zero counted 256/384 prologue thresholds, no plain shift-pack exp_c3
+            assert!(!rs.contains("pub arena: [u64; 1024]"));
+            let arena_prefix = "pub arena: [u64; ";
+            let ar_start = rs.find(arena_prefix).unwrap() + arena_prefix.len();
+            let ar_end = rs[ar_start..].find(']').unwrap() + ar_start;
+            let arena_len: usize = rs[ar_start..ar_end].parse().unwrap();
+            assert!([1088usize, 1152, 1216, 1280].contains(&arena_len), "Unexpected arena_len={arena_len}");
+            seen_arena_lens.insert(arena_len);
+            assert!(!rs.contains("if idx512 < 256usize"));
+            assert!(!rs.contains("else if idx512 < 384usize"));
+            assert!(!rs.contains("(a0 ^ (a1 <<"));
+
+            // V17-M4: 3..=5 medium-tier callable antirea_bridge_* functions smoothing .pdata spectrum
+            let bridge_count = rs.matches("pub extern \"C\" fn antirea_bridge_").count();
+            assert!((3..=5).contains(&bridge_count), "Expected 3..=5 bridge functions, got {bridge_count}");
+            seen_bridge_counts.insert(bridge_count);
+        }
+
+        assert!(seen_rpool_lens.len() >= 2, "Expected >=2 distinct rpool_lens, got {seen_rpool_lens:?}");
+        assert!(seen_arena_lens.len() >= 2, "Expected >=2 distinct arena_lens, got {seen_arena_lens:?}");
+        assert!(seen_bridge_counts.len() >= 2, "Expected >=2 distinct bridge_counts, got {seen_bridge_counts:?}");
+    }
+
+    #[test]
+    fn test_v18_caller_scrubbing_galois_lfsr_and_locality() {
+        let root = repo_root();
+        let table = antirea_ir::default_opcode_table();
+        let ir_text = fs::read_to_string(
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.prevm.ll"),
+        )
+        .unwrap();
+        let lowered = antirea_ir::lower_llvm_module_functions(
+            &ir_text,
+            &["antirea_score".to_string()],
+            0x414E_5449_5245_4156,
+        )
+        .unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
+
+        let mut seen_taps9 = BTreeSet::new();
+        let mut seen_taps8 = BTreeSet::new();
+
+        for s in 0..8u64 {
+            let seed = 181820261106 + s * 131071;
+            let art = generate_rust_defense(&lowered, &parsed, seed).unwrap();
+            let rs = &art.runtime_lib_rs;
+
+            // Format v18+ metadata
+            assert!(
+                rs.contains("Format v18") || rs.contains("Format v19"),
+                "Missing Format v18/v19 header"
+            );
+            assert!(
+                art.diversification_json.contains("\"format_version\": 18")
+                    || art.diversification_json.contains("\"format_version\": 19")
+            );
+            assert!(
+                art.diversification_json.contains("\"engine\": \"antirea-rust-v18\"")
+                    || art.diversification_json.contains("\"engine\": \"antirea-rust-v19\"")
+            );
+
+            // V18-M2: GF(2^9) & GF(2^8) Galois LFSR prologue stepping (zero Hull-Dobell LCG & zero counted extra_scrub loop)
+            assert!(!rs.contains("idx512 = (idx512.wrapping_mul("));
+            assert!(!rs.contains("lut_i = (lut_i.wrapping_mul("));
+            assert!(!rs.contains("for k_scr in 0..extra_scrub"));
+            assert!(rs.contains("lfsr9 = (lfsr9 >> 1)"));
+            assert!(rs.contains("lfsr8 = (lfsr8 >> 1)"));
+
+            let tap9_marker = "& 1usize)) & 0x";
+            let pos9 = rs.find(tap9_marker).expect("Missing galois9 tap");
+            let rest9 = &rs[pos9 + tap9_marker.len()..];
+            let tap9_hex = &rest9[..rest9.find("usize").unwrap()];
+            seen_taps9.insert(tap9_hex.to_string());
+
+            let rest_after9 = &rest9[10..];
+            let pos8 = rest_after9.find(tap9_marker).expect("Missing galois8 tap");
+            let rest8 = &rest_after9[pos8 + tap9_marker.len()..];
+            let tap8_hex = &rest8[..rest8.find("usize").unwrap()];
+            seen_taps8.insert(tap8_hex.to_string());
+
+            // V18-M1: Stack-proximity volatile caller-frame argument scrubbing + keyed transport
+            assert!(rs.contains("stack_delta < 65536usize"));
+            assert!(rs.contains("transport_key: u64"));
+
+            // V18-M3: Adaptive run-length locality & arm_bias transition for large graphs
+            assert!(rs.contains("arm_bias: u8"));
+            assert!(rs.contains("sub_steps >= 9usize") || rs.contains("sub_steps >= 10usize") || rs.contains("sub_steps >= 11usize") || rs.contains("sub_steps >= 12usize"));
+        }
+
+        assert!(seen_taps9.len() >= 3, "Expected >=3 distinct GF(2^9) taps across 8 seeds, got {seen_taps9:?}");
+        assert!(seen_taps8.len() >= 3, "Expected >=3 distinct GF(2^8) taps across 8 seeds, got {seen_taps8:?}");
+
+        let ml = generate_multilang_rust_runtime(
+            std::slice::from_ref(&parsed),
+            &["antirea_entry_v18_test".to_string()],
+            181820261106,
+        )
+        .unwrap();
+        assert!(ml.contains("antirea-rust-v18") || ml.contains("antirea-rust-v19"));
+        assert!(ml.contains("read_volatile(bc)"));
+    }
+
+    #[test]
+    fn test_v19_nonlinear_route_mask_polymorphic_simd_and_hdr_route_blinding() {
+        let root = repo_root();
+        let table = antirea_ir::default_opcode_table();
+        let ir_text = fs::read_to_string(
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.prevm.ll"),
+        )
+        .unwrap();
+        let lowered = antirea_ir::lower_llvm_module_functions(
+            &ir_text,
+            &["antirea_score".to_string()],
+            0x414E_5449_5245_4156,
+        )
+        .unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
+
+        let mut seen_fe_shifts = BTreeSet::new();
+        let mut seen_hr_blinds = BTreeSet::new();
+
+        for s in 0..8u64 {
+            let seed = 191920261106 + s * 262139;
+            let art = generate_rust_defense(&lowered, &parsed, seed).unwrap();
+            let rs = &art.runtime_lib_rs;
+
+            assert!(rs.contains("Format v19"), "Missing Format v19 header");
+            assert!(art.diversification_json.contains("\"format_version\": 19"));
+            assert!(art.diversification_json.contains("\"engine\": \"antirea-rust-v19\""));
+
+            // V19-M1: Position-coupled nonlinear per-index route_slot_mask (no scalar `(slot_salt() as u8)` route_lut XOR)
+            assert!(rs.contains("pub fn route_slot_mask(&self, idx: usize) -> u8"));
+            assert!(!rs.contains("dec0 ^ (ctx.slot_salt() as u8)"));
+            assert!(!rs.contains("self.route_lut[idx] ^ (self.slot_salt() as u8)"));
+
+            // V19-M2: Polymorphic SSE2 fast_entropy shifts & pshufd bijections (no fixed (7,9), (5,11), (13,3), (15,5))
+            assert!(!rs.contains("_mm_slli_epi64(vx, 5), _mm_srli_epi64(vx, 11)"));
+            assert!(!rs.contains("_mm_slli_epi64(vx, 7), _mm_srli_epi64(vx, 9)"));
+            assert!(!rs.contains("_mm_slli_epi64(vx, 13), _mm_srli_epi64(vx, 3)"));
+            assert!(!rs.contains("_mm_slli_epi64(vx, 15), _mm_srli_epi64(vx, 5)"));
+            assert!(!rs.contains("0b10_11_00_01"));
+            assert!(!rs.contains("0b01_00_11_10"));
+
+            let slli_marker = "_mm_slli_epi64(vx, ";
+            let p_sl = rs.find(slli_marker).expect("Missing _mm_slli_epi64");
+            let sl_rest = &rs[p_sl + slli_marker.len()..];
+            let sl_sig = &sl_rest[..sl_rest.find('\n').unwrap()];
+            seen_fe_shifts.insert(sl_sig.to_string());
+
+            // V19-M3: Dynamic GF(2)-homomorphic full-64-bit blinding of hdr_route (no static `r & !127u64`)
+            assert!(rs.contains("pub fn hdr_blind7(u: u64) -> u64"));
+            assert!(!rs.contains("self.hdr_route ^= r & !127u64"));
+            assert!(!rs.contains("(self.hdr_route & 31u64) as usize"));
+
+            let hb_marker = "pub fn hdr_blind7(u: u64) -> u64 {\n        ";
+            let p_hb = rs.find(hb_marker).expect("Missing hdr_blind7 body");
+            let hb_rest = &rs[p_hb + hb_marker.len()..];
+            let hb_line = &hb_rest[..hb_rest.find('\n').unwrap()];
+            seen_hr_blinds.insert(hb_line.to_string());
+        }
+
+        assert!(seen_fe_shifts.len() >= 3, "Expected >=3 distinct fast_entropy shift pairs across 8 seeds, got {seen_fe_shifts:?}");
+        assert!(seen_hr_blinds.len() >= 3, "Expected >=3 distinct hdr_blind7 shift triples across 8 seeds, got {seen_hr_blinds:?}");
     }
 }
