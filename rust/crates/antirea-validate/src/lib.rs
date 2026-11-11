@@ -85,54 +85,58 @@ pub fn inspect_disassembly_text(disasm: &str) -> DisassemblyMetrics {
     }
 }
 
-pub fn scan_pe_for_forbidden_constants(pe_bytes: &[u8]) -> Vec<String> {
+pub fn scan_binary_for_forbidden_constants(bin_bytes: &[u8]) -> Vec<String> {
     let mut hits = Vec::new();
     for &c in FORBIDDEN_CONSTANTS {
         if c > 0xffff_ffff {
             let pat8 = c.to_le_bytes();
-            if pe_bytes.windows(8).any(|w| w == pat8) {
+            if bin_bytes.windows(8).any(|w| w == pat8) {
                 hits.push(format!("0x{c:016x}_le64"));
             }
         } else {
             let pat8 = c.to_le_bytes();
-            if pe_bytes.windows(8).any(|w| w == pat8) {
+            if bin_bytes.windows(8).any(|w| w == pat8) {
                 hits.push(format!("0x{c:08x}_le64"));
             }
         }
         let dec_ascii = format!("{c}");
-        if pe_bytes
+        if bin_bytes
             .windows(dec_ascii.len())
             .any(|w| w == dec_ascii.as_bytes())
         {
             hits.push(format!("0x{c:x}_ascii_dec"));
         }
     }
-    // Also check Round 1 stock bytecode prefix and exposed Rust panic source path
+    // Also check Round 1 stock bytecode prefix and exposed Rust panic source path (Windows + POSIX)
     let r1_prefix: [u8; 8] = [0x13, 0x79, 0x3a, 0xb8, 0xe4, 0x64, 0x4d, 0x04];
-    if pe_bytes.windows(8).any(|w| w == r1_prefix) {
+    if bin_bytes.windows(8).any(|w| w == r1_prefix) {
         hits.push("round1_stock_bytecode_prefix".to_string());
     }
-    if pe_bytes.windows(10).any(|w| w == b"src\\lib.rs") {
+    if bin_bytes.windows(10).any(|w| w == b"src\\lib.rs" || w == b"src/lib.rs") {
         hits.push("exposed_src_lib_rs_panic_path".to_string());
     }
-    if pe_bytes.windows(8).filter(|w| *w == b".fptable").count() > 1 {
+    if bin_bytes.windows(8).filter(|w| *w == b".fptable").count() > 1 {
         hits.push("duplicate_custom_fptable_section".to_string());
     }
     hits
 }
 
-pub fn scan_pe_for_seed_leakage(pe_bytes: &[u8], seed: u64) -> Vec<String> {
+pub fn scan_pe_for_forbidden_constants(pe_bytes: &[u8]) -> Vec<String> {
+    scan_binary_for_forbidden_constants(pe_bytes)
+}
+
+pub fn scan_binary_for_seed_leakage(bin_bytes: &[u8], seed: u64) -> Vec<String> {
     let mut hits = Vec::new();
     let le8 = seed.to_le_bytes();
-    if pe_bytes.windows(8).any(|w| w == le8) {
+    if bin_bytes.windows(8).any(|w| w == le8) {
         hits.push("seed_raw_le64".to_string());
     }
     let be8 = seed.to_be_bytes();
-    if pe_bytes.windows(8).any(|w| w == be8) {
+    if bin_bytes.windows(8).any(|w| w == be8) {
         hits.push("seed_raw_be64".to_string());
     }
     let hex_lower = format!("{seed:016x}");
-    if pe_bytes
+    if bin_bytes
         .windows(hex_lower.len())
         .any(|w| w.eq_ignore_ascii_case(hex_lower.as_bytes()))
     {
@@ -140,7 +144,7 @@ pub fn scan_pe_for_seed_leakage(pe_bytes: &[u8], seed: u64) -> Vec<String> {
     }
     if seed >= 100_000 {
         let dec_str = format!("{seed}");
-        if pe_bytes
+        if bin_bytes
             .windows(dec_str.len())
             .any(|w| w == dec_str.as_bytes())
         {
@@ -148,6 +152,10 @@ pub fn scan_pe_for_seed_leakage(pe_bytes: &[u8], seed: u64) -> Vec<String> {
         }
     }
     hits
+}
+
+pub fn scan_pe_for_seed_leakage(pe_bytes: &[u8], seed: u64) -> Vec<String> {
+    scan_binary_for_seed_leakage(pe_bytes, seed)
 }
 
 pub fn generate_test_pairs(seed: u64, random_count: usize) -> Vec<(u32, u32)> {
@@ -502,8 +510,8 @@ pub fn build_and_validate_candidate(
         r#"{{
   "schema_version": 1,
   "status": "{overall_status}",
-  "engine": "antirea-rust-v19",
-  "format_version": 19,
+  "engine": "antirea-rust-v20",
+  "format_version": 20,
   "candidate": "{}",
   "candidate_sha256": "{exe_sha256}",
   "previous": "{}",
@@ -513,8 +521,8 @@ pub fn build_and_validate_candidate(
   "protection": {{
     "status": "{}",
     "evidence": {{
-      "format_version": 19,
-      "engine": "antirea-rust-v19",
+      "format_version": 20,
+      "engine": "antirea-rust-v20",
       "dispatcher_symbol": "{}",
       "cluster_count": {},
       "total_real_nodes": {},
@@ -610,12 +618,53 @@ pub fn build_and_validate_candidate(
     Ok(validation_json)
 }
 
+pub fn resolve_multilang_staticlib_path(
+    crate_dir: &Path,
+    target: Option<&str>,
+) -> Result<std::path::PathBuf, String> {
+    let rel_dir = match target.filter(|t| !t.trim().is_empty()) {
+        Some(triple) => crate_dir.join("target").join(triple).join("release"),
+        None => crate_dir.join("target/release"),
+    };
+    let candidates = [
+        rel_dir.join("antirea_multilang_runtime.lib"),
+        rel_dir.join("libantirea_multilang_runtime.a"),
+    ];
+    for cand in &candidates {
+        if cand.exists() {
+            return Ok(cand.clone());
+        }
+    }
+    Err(format!(
+        "Multilang staticlib not found in {} (checked .lib and lib*.a)",
+        rel_dir.display()
+    ))
+}
+
 pub fn compile_multilang_rust_runtime(
     workspace_root: &Path,
     input_ir_path: &Path,
     disp_symbols: &[String],
     output_dir: &Path,
     seed: u64,
+) -> Result<String, String> {
+    compile_multilang_rust_runtime_for_target(
+        workspace_root,
+        input_ir_path,
+        disp_symbols,
+        output_dir,
+        seed,
+        None,
+    )
+}
+
+pub fn compile_multilang_rust_runtime_for_target(
+    workspace_root: &Path,
+    input_ir_path: &Path,
+    disp_symbols: &[String],
+    output_dir: &Path,
+    seed: u64,
+    target: Option<&str>,
 ) -> Result<String, String> {
     let _ = workspace_root;
     fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output_dir: {e}"))?;
@@ -626,37 +675,52 @@ pub fn compile_multilang_rust_runtime(
     let runtime_rs = generate_multilang_rust_runtime(&blobs, disp_symbols, seed)?;
     let crate_dir = write_multilang_generated_crate(output_dir, &runtime_rs)?;
     let cargo_manifest = crate_dir.join("Cargo.toml");
-    let cargo_status = Command::new("cargo")
-        .args([
-            "build",
-            "--release",
-            "--manifest-path",
-            cargo_manifest.to_str().unwrap(),
-        ])
+    let mut cmd = Command::new("cargo");
+    cmd.args([
+        "build",
+        "--release",
+        "--manifest-path",
+        cargo_manifest.to_str().unwrap(),
+    ]);
+    let target_clean = target.map(|t| t.trim()).filter(|t| !t.is_empty());
+    if let Some(triple) = target_clean {
+        cmd.args(["--target", triple]);
+    }
+    let cargo_status = cmd
         .status()
         .map_err(|e| format!("Failed to run cargo build on multilang crate: {e}"))?;
     if !cargo_status.success() {
         return Err("cargo build --release failed on generated multilang rust-runtime".to_string());
     }
-    let staticlib_path = crate_dir.join("target/release/antirea_multilang_runtime.lib");
-    if !staticlib_path.exists() {
+    let staticlib_path = resolve_multilang_staticlib_path(&crate_dir, target_clean)?;
+    let staticlib_bytes = fs::read(&staticlib_path)
+        .map_err(|e| format!("Failed to read {}: {e}", staticlib_path.display()))?;
+    let leak_hits = scan_binary_for_seed_leakage(&staticlib_bytes, seed);
+    if !leak_hits.is_empty() {
         return Err(format!(
-            "Multilang staticlib not found at {}",
-            staticlib_path.display()
+            "Seed leakage detected in compiled staticlib: {:?}",
+            leak_hits
         ));
     }
-    let staticlib_sha256 = sha256_hex(&fs::read(&staticlib_path).unwrap());
+    let staticlib_sha256 = sha256_hex(&staticlib_bytes);
     let seed_commitment_sha256 = sha256_hex(format!("antirea-v13-seed-commitment:{seed}").as_bytes());
+    let target_json = match target_clean {
+        Some(triple) => format!("\"{triple}\""),
+        None => "null".to_string(),
+    };
     let report = format!(
         r#"{{
   "status": "passed",
-  "engine": "antirea-rust-v19",
-  "format_version": 19,
+  "engine": "antirea-rust-v20",
+  "format_version": 20,
+  "target": {target_json},
   "seed_commitment_sha256": "{seed_commitment_sha256}",
+  "seed_leakage_hits": 0,
   "blob_count": {},
   "dispatcher_symbols": {:?},
   "staticlib_path": "{}",
-  "staticlib_sha256": "{staticlib_sha256}"
+  "staticlib_sha256": "{staticlib_sha256}",
+  "external_attack_evaluation": "not_evaluated"
 }}"#,
         blobs.len(),
         disp_symbols,
@@ -664,6 +728,193 @@ pub fn compile_multilang_rust_runtime(
     );
     fs::write(output_dir.join("rust-multilang-report.json"), &report).unwrap();
     Ok(report)
+}
+
+fn infer_cargo_lib_stem(manifest_path: &Path) -> Result<String, String> {
+    let text = fs::read_to_string(manifest_path)
+        .map_err(|e| format!("Failed to read Cargo.toml {}: {e}", manifest_path.display()))?;
+    let mut section = "";
+    let mut pkg_name: Option<String> = None;
+    let mut lib_name: Option<String> = None;
+    for raw_line in text.lines() {
+        let line = raw_line.split('#').next().unwrap_or("").trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            section = &line[1..line.len() - 1];
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            if k.trim() == "name" {
+                let cleaned = v.trim().trim_matches('"').trim_matches('\'').to_string();
+                if section.trim() == "lib" && !cleaned.is_empty() {
+                    lib_name = Some(cleaned);
+                } else if section.trim() == "package" && !cleaned.is_empty() {
+                    pkg_name = Some(cleaned);
+                }
+            }
+        }
+    }
+    let chosen = lib_name
+        .or(pkg_name)
+        .ok_or_else(|| format!("Could not infer crate name from {}", manifest_path.display()))?;
+    Ok(chosen.replace('-', "_"))
+}
+
+pub fn compile_cargo_rust_runtime(
+    workspace_root: &Path,
+    manifest_path: &Path,
+    selected_functions: &[String],
+    disp_symbols: &[String],
+    output_dir: &Path,
+    seed: u64,
+    target: Option<&str>,
+) -> Result<String, String> {
+    fs::create_dir_all(output_dir).map_err(|e| format!("Failed to create output_dir: {e}"))?;
+    let lib_stem = infer_cargo_lib_stem(manifest_path)?;
+    let ir_target_dir = output_dir.join("cargo-ir-target");
+    let target_clean = target.map(|t| t.trim()).filter(|t| !t.is_empty());
+
+    let mut cmd = Command::new("cargo");
+    cmd.args([
+        "rustc",
+        "--manifest-path",
+        manifest_path
+            .to_str()
+            .ok_or_else(|| "Non-UTF8 manifest_path".to_string())?,
+        "--lib",
+        "--release",
+        "--target-dir",
+        ir_target_dir
+            .to_str()
+            .ok_or_else(|| "Non-UTF8 ir_target_dir".to_string())?,
+    ]);
+    if let Some(triple) = target_clean {
+        cmd.args(["--target", triple]);
+    }
+    cmd.args([
+        "--",
+        "--emit=llvm-ir",
+        "-C",
+        "codegen-units=1",
+        "-C",
+        "debuginfo=0",
+        "-C",
+        "panic=abort",
+    ]);
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to invoke cargo rustc for LLVM IR emission: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "cargo rustc --emit=llvm-ir failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let deps_dir = match target_clean {
+        Some(triple) => ir_target_dir.join(triple).join("release/deps"),
+        None => ir_target_dir.join("release/deps"),
+    };
+    let mut matching_ll = Vec::new();
+    let mut fallback_ll = Vec::new();
+    for entry in fs::read_dir(&deps_dir)
+        .map_err(|e| format!("Failed to read deps dir {}: {e}", deps_dir.display()))?
+    {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let p = entry.path();
+        if p.extension().and_then(|s| s.to_str()) == Some("ll") {
+            let fname = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if fname.starts_with(&format!("{lib_stem}-")) || fname == format!("{lib_stem}.ll") {
+                matching_ll.push(p);
+            } else {
+                fallback_ll.push(p);
+            }
+        }
+    }
+    matching_ll.sort();
+    fallback_ll.sort();
+    let emitted_ll_path = matching_ll
+        .into_iter()
+        .next()
+        .or_else(|| fallback_ll.into_iter().next())
+        .ok_or_else(|| format!("No .ll file emitted in {}", deps_dir.display()))?;
+
+    let raw_ir = fs::read_to_string(&emitted_ll_path)
+        .map_err(|e| format!("Failed to read emitted IR {}: {e}", emitted_ll_path.display()))?;
+    let source_ir_path = output_dir.join("cargo-source.ll");
+    fs::write(&source_ir_path, &raw_ir)
+        .map_err(|e| format!("Failed to write cargo-source.ll: {e}"))?;
+
+    let lowered_ir = antirea_ir::lower_llvm_module_functions(&raw_ir, selected_functions, seed)?;
+    let lowered_ir_path = output_dir.join("cargo-lowered.ll");
+    fs::write(&lowered_ir_path, &lowered_ir)
+        .map_err(|e| format!("Failed to write cargo-lowered.ll: {e}"))?;
+
+    let table = antirea_ir::default_opcode_table();
+    let blobs = parse_all_llvm_vm_irs(&lowered_ir, &table)?;
+    let effective_disp: Vec<String> = if !disp_symbols.is_empty() {
+        disp_symbols.to_vec()
+    } else if !selected_functions.is_empty() && selected_functions.len() == blobs.len() {
+        selected_functions
+            .iter()
+            .map(|f| format!("antirea_cargo_vm_{f}"))
+            .collect()
+    } else {
+        (0..blobs.len())
+            .map(|idx| format!("antirea_cargo_vm_slot_{idx}"))
+            .collect()
+    };
+
+    compile_multilang_rust_runtime_for_target(
+        workspace_root,
+        &lowered_ir_path,
+        &effective_disp,
+        output_dir,
+        seed,
+        target_clean,
+    )?;
+
+    let crate_dir = output_dir.join("rust-multilang-runtime");
+    let staticlib_path = resolve_multilang_staticlib_path(&crate_dir, target_clean)?;
+    let staticlib_sha256 = sha256_hex(&fs::read(&staticlib_path).map_err(|e| e.to_string())?);
+    let seed_commitment_sha256 = sha256_hex(format!("antirea-v13-seed-commitment:{seed}").as_bytes());
+    let target_json = match target_clean {
+        Some(triple) => format!("\"{triple}\""),
+        None => "null".to_string(),
+    };
+    let cargo_report = format!(
+        r#"{{
+  "status": "passed",
+  "engine": "antirea-rust-v20",
+  "format_version": 20,
+  "target": {target_json},
+  "manifest_path": "{}",
+  "crate_lib_stem": "{lib_stem}",
+  "selected_functions": {:?},
+  "dispatcher_symbols": {:?},
+  "blob_count": {},
+  "seed_commitment_sha256": "{seed_commitment_sha256}",
+  "seed_leakage_hits": 0,
+  "source_ir_path": "{}",
+  "lowered_ir_path": "{}",
+  "staticlib_path": "{}",
+  "staticlib_sha256": "{staticlib_sha256}",
+  "external_attack_evaluation": "not_evaluated"
+}}"#,
+        manifest_path.display().to_string().replace('\\', "/"),
+        selected_functions,
+        effective_disp,
+        blobs.len(),
+        source_ir_path.display().to_string().replace('\\', "/"),
+        lowered_ir_path.display().to_string().replace('\\', "/"),
+        staticlib_path.display().to_string().replace('\\', "/"),
+    );
+    fs::write(output_dir.join("rust-cargo-report.json"), &cargo_report)
+        .map_err(|e| format!("Failed to write rust-cargo-report.json: {e}"))?;
+    Ok(cargo_report)
 }
 
 #[cfg(test)]
@@ -694,5 +945,66 @@ mod tests {
         let mut dirty_bytes = vec![0u8; 64];
         dirty_bytes[8..16].copy_from_slice(&0x04756de4bd5a7963u64.to_le_bytes());
         assert!(!scan_pe_for_forbidden_constants(&dirty_bytes).is_empty());
+    }
+
+    #[test]
+    fn test_v20_binary_scan_staticlib_resolution_and_compile_cargo() {
+        let seed = 0x2020_1111_55aa_77ccu64;
+        let clean = vec![0x90u8; 128];
+        assert!(scan_binary_for_seed_leakage(&clean, seed).is_empty());
+        assert!(scan_binary_for_forbidden_constants(&clean).is_empty());
+
+        let mut unix_panic = b"prefix/src/lib.rs:42".to_vec();
+        unix_panic.resize(64, 0);
+        assert!(scan_binary_for_forbidden_constants(&unix_panic)
+            .contains(&"exposed_src_lib_rs_panic_path".to_string()));
+
+        // End-to-end compile_cargo_rust_runtime on a temporary Cargo library crate
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "antirea-v20-cargo-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp_dir);
+        let crate_dir = tmp_dir.join("sample-crate");
+        fs::create_dir_all(crate_dir.join("src")).unwrap();
+        fs::write(
+            crate_dir.join("Cargo.toml"),
+            r#"[package]
+name = "sample-cargo-target"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            crate_dir.join("src/lib.rs"),
+            r#"#[no_mangle]
+pub extern "C" fn cargo_mix_score(a: u32, b: u32) -> u64 {
+    let x = (a as u64).wrapping_mul(0x9e37_79b1u64) ^ ((b as u64) << 7);
+    (x.wrapping_add(0x517c_c1b7u64)) ^ (x >> 13)
+}
+"#,
+        )
+        .unwrap();
+        let out_dir = tmp_dir.join("out");
+        let report = compile_cargo_rust_runtime(
+            &tmp_dir,
+            &crate_dir.join("Cargo.toml"),
+            &["cargo_mix_score".to_string()],
+            &["vm_cargo_mix_score".to_string()],
+            &out_dir,
+            2026111120,
+            None,
+        )
+        .expect("compile_cargo_rust_runtime should succeed");
+        assert!(report.contains("\"status\": \"passed\""));
+        assert!(report.contains("\"engine\": \"antirea-rust-v20\""));
+        assert!(report.contains("\"format_version\": 20"));
+        assert!(report.contains("\"seed_leakage_hits\": 0"));
+        assert!(out_dir.join("rust-cargo-report.json").exists());
+        let _ = fs::remove_dir_all(&tmp_dir);
     }
 }

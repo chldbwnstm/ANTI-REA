@@ -6,9 +6,9 @@
 
 **Have a core feature you need to protect? Keep it from being analyzed or cloned, down to the binary level.**
 
-[![Version](https://img.shields.io/badge/Version-v1.0.0-10b981?style=flat-square)](CHANGELOG.md)
-[![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_4_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
-[![Rust Engine](https://img.shields.io/badge/Rust_Engine-antirea--rust--v19_(1.75%2B_MSVC)-dea584?style=flat-square&logo=rust&logoColor=white)](#supported-engines)
+[![Version](https://img.shields.io/badge/Version-v1.1.0-10b981?style=flat-square)](CHANGELOG.md)
+[![Defense Status](https://img.shields.io/badge/Defense_Status-Phase_5_Active-38bdf8?style=flat-square)](#anti-rea-evolution-roadmap)
+[![Rust Engine](https://img.shields.io/badge/Rust_Engine-antirea--rust--v20_(1.75%2B_Cross--Arch)-dea584?style=flat-square&logo=rust&logoColor=white)](#supported-engines)
 [![Auto Ontology](https://img.shields.io/badge/Semantic_Scope-NVIDIA_Auto_Ontology_1.2-76b900?style=flat-square)](#semantic-scope--rsi-lineage-nvidia-auto-ontology)
 [![Languages](https://img.shields.io/badge/Languages-11_Supported-007acc?style=flat-square)](#supported-programming-languages)
 [![MCP + CLI](https://img.shields.io/badge/MCP-stdio_%2B_CLI-5c4ee5?style=flat-square)](#quick-start)
@@ -18,7 +18,7 @@
 
 Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agent inspect a binary when you ask *"Understand how this feature works in that app and build a copy for my project."*
 
-**Agentic attack? Meet agentic defense — defense that grows stronger over time.** The ultimate goal of **ANTI-REA** is to **block everything that REA can analyze**. Ask your agent in plain language — *"Protect the core logic in my program so REA can't analyze or clone it"* — and the agent uses ANTI-REA's semantic scope analyzer (powered by [NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology)) to isolate secret/boundary functions without trapping inner hot loops, compiles them through the Pure-Rust polymorphic VM (`antirea-rust-v19`, `Format v19`), verifies bit-exact behavioral equivalence, and measures interactive and batch execution speed.
+**Agentic attack? Meet agentic defense — defense that grows stronger over time.** The ultimate goal of **ANTI-REA** is to **block everything that REA can analyze**. Ask your agent in plain language — *"Protect the core logic in my program so REA can't analyze or clone it"* — and the agent uses ANTI-REA's semantic scope analyzer (powered by [NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology)) to isolate secret/boundary functions without trapping inner hot loops, compiles them through the Pure-Rust polymorphic VM (`antirea-rust-v20`, `Format v20`), verifies bit-exact behavioral equivalence, and measures interactive and batch execution speed.
 
 ---
 
@@ -35,21 +35,21 @@ Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agen
 
 ## Supported Programming Languages
 
-ANTI-REA unifies core logic virtualization across **11 native, managed, and dynamic languages** through its Pure-Rust polymorphic VM compiler (`antirea-rust-v19` via `antirea-cli compile-multilang` and `antirea.rust_multilang`):
+ANTI-REA unifies core logic virtualization across **11 native, managed, and dynamic languages** through its Pure-Rust polymorphic VM compiler (`antirea-rust-v20` via `antirea-cli compile-multilang`, `compile-cargo`, and `antirea.rust_multilang`):
 
-| Language | Environment / Runtime | Protection Mechanism (`antirea-rust-v19`) | Deployment Form |
+| Language | Environment / Runtime | Protection Mechanism (`antirea-rust-v20`) | Deployment Form |
 |:---|:---|:---|:---|
-| **C** | Clang / MSVC / LLVM | LLVM IR → Auto Ontology Scope → Pure-Rust Polymorphic VM (`antirea-rust-v19`) | Standalone Native Binary (`.exe`) & Native DLL |
-| **C++** | Clang++ / MSVC / LLVM | LLVM IR → Auto Ontology Scope → Pure-Rust Polymorphic VM (`antirea-rust-v19`) | Standalone Native Binary (`.exe`) & Native DLL |
-| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → Auto Ontology Scope → Pure-Rust Polymorphic VM (`antirea-rust-v19`) | C-ABI & Standalone Protected Native Binary |
-| **Swift** | Swift 5.x+ (LLVM Native) | Swift Frontend IR → Auto Ontology Scope → Pure-Rust Polymorphic VM (`antirea-rust-v19`) | Native App Core & Protected Executable |
-| **Go** | Go 1.20+ (Typed Native) | Pure-Go Numeric AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v19`) | Package Core Separation & Native Binary Link |
-| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | C# / CIL Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v19`) | Managed App + Protected Native Core (P/Invoke / EXE) |
-| **Java** | OpenJDK 17+ / JVM | Java Bytecode / Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v19`) | Java Application + JNI / Protected Native Core |
-| **Kotlin** | Kotlin 1.9+ / JVM | Kotlin / JVM Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v19`) | Kotlin App / JVM Service + Protected Native Core |
-| **Python** | Python 3.10 ~ 3.13 | Python AST Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v19`) & Mixed Native Bundle | Protected Native Binary / PYD Extension & Module Bundle |
-| **JavaScript** | Node.js / Electron / Runtime | JS Core AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v19`) & Native Addon Bridge | Protected Native Core & Application Bundle |
-| **TypeScript** | TypeScript 5.x+ | Typed TS AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v19`) & Native Addon Bridge | Protected Native Core & Transpiled Bundle |
+| **C** | Clang / MSVC / LLVM | LLVM IR → Auto Ontology Scope → Pure-Rust Polymorphic VM (`antirea-rust-v20`) | Standalone Native Binary (`.exe`) & Native DLL |
+| **C++** | Clang++ / MSVC / LLVM | LLVM IR → Auto Ontology Scope → Pure-Rust Polymorphic VM (`antirea-rust-v20`) | Standalone Native Binary (`.exe`) & Native DLL |
+| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → Auto Ontology Scope → Pure-Rust Polymorphic VM (`antirea-rust-v20`) | C-ABI & Standalone Protected Native Binary |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift Frontend IR → Auto Ontology Scope → Pure-Rust Polymorphic VM (`antirea-rust-v20`) | Native App Core & Protected Executable |
+| **Go** | Go 1.20+ (Typed Native) | Pure-Go Numeric AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v20`) | Package Core Separation & Native Binary Link |
+| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | C# / CIL Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v20`) | Managed App + Protected Native Core (P/Invoke / EXE) |
+| **Java** | OpenJDK 17+ / JVM | Java Bytecode / Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v20`) | Java Application + JNI / Protected Native Core |
+| **Kotlin** | Kotlin 1.9+ / JVM | Kotlin / JVM Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v20`) | Kotlin App / JVM Service + Protected Native Core |
+| **Python** | Python 3.10 ~ 3.13 | Python AST Core Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v20`) & Mixed Native Bundle | Protected Native Binary / PYD Extension & Module Bundle |
+| **JavaScript** | Node.js / Electron / Runtime | JS Core AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v20`) & Native Addon Bridge | Protected Native Core & Application Bundle |
+| **TypeScript** | TypeScript 5.x+ | Typed TS AST Lowering → Pure-Rust Polymorphic VM (`antirea-rust-v20`) & Native Addon Bridge | Protected Native Core & Transpiled Bundle |
 
 > [!TIP]
 > For detailed architectural contracts and language integration specifications, see [Multi-Language Development](docs/multilanguage-development.md).
@@ -63,8 +63,8 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 - **Phase 1 · Focus on Static Binary Protection [COMPLETED]:** Protects compiled native binaries against static decompilation, Ghidra analysis, and direct formula recovery via control-flow virtualization and layered binary hardening.
 - **Phase 2 · Deep Static Hardening [COMPLETED]:** Extends static resilience by camouflaging handler boundaries, scrambling symbol relations, and concealing dispatcher internals.
 - **Phase 3 · Scaling Automated Attack Testers [COMPLETED]:** Continuously scales up autonomous attack agent instances, pitting new defense iterations against live automated testers every day to evolve defenses automatically.
-- **Phase 4 · Dynamic Protection Hardening, Semantic Auto Ontology & Pure-Rust Engine `V19` Evolution [ACTIVE]**
-- **Phase 5 · ? [Classified]**
+- **Phase 4 · Dynamic Protection Hardening, Semantic Auto Ontology & Pure-Rust Engine `V19` Evolution [COMPLETED]:** Ephemeral W^X S-Box vault, pure leaf cluster inlining (`0` internal calls), 3-share mixed-modulus header splitting, full-64-bit `hdr_route` blinding, NVIDIA Auto Ontology (`v1.2.0`) scope optimization (`32.4x`–`4,345.7x` OSS speedup), and `0 / 40` standalone recovery across 8 external Multi-PC fleet rounds.
+- **Phase 5 · Cross-Platform Runtime, Direct Cargo Crate Virtualization & Engine `V20` Live Ciphertext Ratchet [ACTIVE]**
 - **Phase 6 · ? [Classified]**
 - **Phase 7 · ? [The Frontier]**
 
@@ -98,7 +98,7 @@ Your agent automatically queries the read-only semantic layer (`recommend_scope`
 
 ### 3. Use the terminal
 
-Build the Pure-Rust defense engine (`antirea-cli`), select budget-safe virtualization boundaries with Auto Ontology, and compile hardened `antirea-rust-v19` targets:
+Build the Pure-Rust defense engine (`antirea-cli`), select budget-safe virtualization boundaries with Auto Ontology, and compile hardened `antirea-rust-v20` targets:
 
 ```powershell
 # 1. Build the Pure-Rust defense engine workspace
@@ -107,8 +107,9 @@ cargo build --release --manifest-path rust/Cargo.toml
 # 2. Recommend optimal protection scope on any LLVM IR module (excludes inner hot-loop traps)
 .\.venv\Scripts\python.exe -m antirea.ontology_mcp --ir <module.ll> recommend-scope --max-slowdown 15
 
-# 3. Compile selected LLVM IR function(s) into a hardened Pure-Rust polymorphic VM staticlib (antirea-rust-v19)
+# 3. Compile selected LLVM IR function(s) or a Cargo library crate into a Pure-Rust VM staticlib (antirea-rust-v20)
 .\rust\target\release\antirea-cli.exe compile-multilang --workspace . --input-ir <module.ll> --dispatchers <fn1,fn2> --output-dir <out_dir> --seed 90720261105
+.\rust\target\release\antirea-cli.exe compile-cargo --workspace . --manifest-path <Cargo.toml> --functions <fn1,fn2> --output-dir <out_dir> --seed 90720261111
 
 # 4. Full end-to-end candidate build + 4-gate verification against baseline and previous executables
 .\rust\target\release\antirea-cli.exe build --workspace . --input-build <ir_dir> --baseline <baseline.exe> --previous <prev.exe> --output-dir <out_dir> --seed 90720261105
@@ -189,10 +190,10 @@ We run a closed-loop evolutionary cycle between our **Defense Environment** and 
 
 1. **Build & 4-Gate Validation (Pure-Rust Defense Engine):** Synthesize new Pure-Rust VM/obfuscation passes (`rust/crates/antirea-passes`) and enforce 100% behavioral equivalence, PE constant/seed hygiene, polymorphic cross-seed distinctness, and usability latency gates (`antirea-validate`).
 2. **Multi-PC Blind External Attack & Telemetry:** Publish only the **protected EXE and public I/O contract** (never source code, IR, or private tests) to isolated attacker machines. Each attacker records live usability telemetry (`usability-telemetry.json`) and attempts logic recovery using REA MCP, Ghidra headless decompilation, Unicorn CPU emulation, and differential memory/stack probing, logging observed footholds in `reversing-chain.json`.
-3. **Ontology-Indexed Counter-Exploitation (`V13` → `V19.0`):** Defender-curated structural footholds (`F0`–`F14`) and mitigations (`V15`–`V19`, `ONTO-SYM-V3`) are indexed in the Auto Ontology SQLite lineage catalog so open attack surfaces are systematically eliminated and re-audited across subsequent external attack rounds.
+3. **Ontology-Indexed Counter-Exploitation (`V13` → `V20.0`):** Defender-curated structural footholds (`F0`–`F17`) and mitigations (`V15`–`V20`, `ONTO-SYM-V3`) are indexed in the Auto Ontology SQLite lineage catalog so open attack surfaces are systematically eliminated and re-audited across subsequent external attack rounds.
 
 ### Kerckhoffs's Principle: Why Open-Source Defense Remains Resilient Against AI Deobfuscators
-Because ANTI-REA is open-source, an attacker (or an autonomous AI agent) can read our entire compiler transformation source (`rust/crates/antirea-passes/src/lib.rs`). By **Kerckhoffs's Principle**, `antirea-rust-v19` (`Format v19`) relies solely on the per-build cryptographic `--seed` and mathematically irreversible synthesis:
+Because ANTI-REA is open-source, an attacker (or an autonomous AI agent) can read our entire compiler transformation source (`rust/crates/antirea-passes/src/lib.rs`). By **Kerckhoffs's Principle**, `antirea-rust-v20` (`Format v20`) relies solely on the per-build cryptographic `--seed` and mathematically irreversible synthesis:
 
 - **RFC 8439 20-Round `ChaCha20Csprng` & 512-Bit Sponge Whitening (`V12-M1` / `V13-M1`, Zero Seed Inversion):** Replaces reversible PRNGs (`SplitMix64`, LCG, Xorshift) with an **RFC 8439 20-round ChaCha20 stream generator (`ChaCha20Csprng`) + non-invertible 512-bit ARX sponge whitening**, paired with an automated post-link PE scan verifying `0` leaked seed bytes. Extracting every constant in `.text`/`.rdata` cannot invert the PRNG state or derive sibling keys.
 - **Polymorphic `VmCtx` Layout, Variable Non-16 Cluster Topology, & `.pdata` Spectrum Smoothing (`V12-M2` / `V16-M3` / `V17-M2..M4`):** Every build Fisher-Yates shuffles `#[repr(C)]` `VmCtx` fields, randomizes arena sizes (`1,088..1,280` qwords) and `.rdata` constant pools (`288..512` qwords), synthesizes a build-unique cluster count (`12..20` leaf cluster handlers rather than a fixed `16`) routed through a vault-encrypted `ANTIREA_CLUSTER_LUT`, and emits `8–45 KB` medium-tier callable `.pdata` bridge procedures to eliminate bimodal function-size gaps.
@@ -218,7 +219,7 @@ Tested across **isolated 5-PC parallel external attacker evaluations** equipped 
 
 ## Supported Engines
 
-While the built-in open-source Pure-Rust engine (`ANTI-REA Engine`, `rust/` workspace: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`, currently **`antirea-rust-v19`** / `Format v19`) grows stronger continuously across all 11 supported languages, real open-source C libraries, and multi-module native binaries, **if you want to combine commercial binary protectors, you can connect Themida, VMProtect, or Code Virtualizer to ANTI-REA and tell your agent in natural language what execution speed and defense level you want.**
+While the built-in open-source Pure-Rust engine (`ANTI-REA Engine`, `rust/` workspace: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`, currently **`antirea-rust-v20`** / `Format v20`) grows stronger continuously across all 11 supported languages, real open-source C libraries, and multi-module native binaries, **if you want to combine commercial binary protectors, you can connect Themida, VMProtect, or Code Virtualizer to ANTI-REA and tell your agent in natural language what execution speed and defense level you want.**
 
 ```text
 Use VMProtect (or Themida / Code Virtualizer) to keep execution speed above 80% of the original while defending the core logic as strongly as possible.
@@ -226,7 +227,7 @@ Use VMProtect (or Themida / Code Virtualizer) to keep execution speed above 80% 
 
 | Engine | Connection | Current Status |
 |---|---|---|
-| **ANTI-REA Engine** | In-house Pure-Rust native protection workspace (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`), 11-language `compile-multilang` VM pipeline, & NVIDIA Auto Ontology (`antirea.ontology_mcp`) | Active Pure-Rust **`antirea-rust-v19` (`Engine V19.0`, `Format v19`)**: RFC 8439 20-round `ChaCha20Csprng` + 512-bit sponge whitening, polymorphic `12..20` leaf cluster handlers (`0` internal calls) + medium-tier `.pdata` bridges, `W^X` ephemeral stack S-Box vault + nonlinear per-index `route_slot_mask`, 96-word 3-share mixed-modulus ($\text{GF}(2) \times \mathbb{Z}_{2^{64}}$) header splitting + full-64-bit `hdr_route` blinding, per-build ChaCha20 SSE2 `pshufd` bijections, NVIDIA Auto Ontology (`v1.2.0`) scope optimization (`32.4x`–`4,345.7x` OSS speedup), and `0 / 40` recovery across 8 external 5-PC attack cycles |
+| **ANTI-REA Engine** | In-house Pure-Rust native protection workspace (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`), 11-language `compile-multilang` VM pipeline, & NVIDIA Auto Ontology (`antirea.ontology_mcp`) | Active Pure-Rust **`antirea-rust-v20` (`Engine V20.0`, `Format v20`)**: cross-arch `portable_simd128` + zero `_mm_srli_si128` (`V20-M1`/`V20-M2`), live `.rdata` ciphertext vault ratchet (`V20-M3`), direct `compile-cargo` virtualization (locally verified; external fleet `not_evaluated`), building on `V19.0`'s `0 / 40` recovery across 8 external 5-PC attack cycles & NVIDIA Auto Ontology (`v1.2.0`) scope optimization (`32.4x`–`4,345.7x` OSS speedup) |
 | **Themida** | Defense MCP/CLI (`.tmd`/`.tm` project) | Windows native x86/x64 PE adapter implemented (requires local installation) |
 | **VMProtect** | Defense MCP/CLI (`.vmp` project) | Windows native x86/x64 PE adapter implemented (requires local installation) |
 | **Code Virtualizer** | Defense MCP/CLI (`.cv` project) | Windows native x86/x64 PE adapter implemented (Legacy / v4 supported, requires local installation) |

@@ -1,60 +1,32 @@
-# Validation status — 2026-10-22
+# Validation status — 2026-11-11
 
-This is a public summary of local maintainer qualification, not a published raw
-evidence bundle or a claim that all programs in these languages are supported.
-Private toolchain paths, raw logs, generated binaries, internal plans and incoming
-external reports remain outside this repository. Historical local-only paths in
-the development documents identify records; they are not download links.
+This is a public summary of local maintainer qualification and recorded external Multi-PC fleet evaluations. Private toolchain paths, raw logs, generated binaries, internal plans, and incoming external attacker workspaces remain outside public handoff bundles.
 
-## Functional qualification
+## 1. External Multi-PC Attacker Fleet Qualification (`V16.0` – `V19.0` — Phase 4 Completed)
 
-The latest completed implementation qualification ran on Windows x64. Ordinary
-regression recorded **2,891 passed tests and 82 deliberate opt-in skips**, with
-zero failures/errors and 2,806 unchanged source/tool/runner pins. A separate
-focused suite passed 202 tests. Opt-in skips are not counted as passes.
+Across 8 consecutive external 5-PC attacker fleet rounds (`40` independent blind target evaluations totaling `~30.6` attacker-hours and `5,087` observed reversing tool calls across REA MCP, Ghidra headless decompilation, Unicorn CPU emulation, and differential probing):
 
-| Supported sample route | Observed result |
-| --- | --- |
-| Direct C, multi-source C++, single-crate no_std Rust | Each matched 8,200 sampled/boundary cases across independently source-compiled original, normalized baseline and protected DLLs |
-| C# | Three methods compared with original CLR execution on 8,516 input vectors each; 10 app and 10 relocated-deployment cases |
-| Java / Kotlin | Each: 51,096 scalar comparisons, 11 app and 11 relocated-deployment cases |
-| Go | 68,128 scalar comparisons, 17 app and 17 relocated-deployment cases |
-| Swift | 136,256 scalar comparisons, 15 app and 15 relocated-deployment cases |
-| Python / JavaScript / TypeScript | Preceding increment: 4 / 15 / 13 app cases respectively across original, protected and copied-deployment arms; not newly rerun as actual apps after the native-only change |
+| Validated Scope | Engine Generation | Functional Parity | Interactive / Batch Usability | Standalone External Recovery |
+| --- | --- | --- | --- | --- |
+| 11 Supported Languages (`c`, `cpp`, `rust`, `swift`, `go`, `csharp`, `java`, `kotlin`, `python`, `javascript`, `typescript`) | `antirea-rust-v19` (`Format v19`) | `100%` (`5,198` pairs / route) | `11 / 11 USABLE` (`3.19 ms` – `6.97 ms`) | `0 / 11` (`0%`) |
+| 5 Real Open-Source C Libraries (`LZ4`, `xxHash`, `Lua 5.4`, `BLAKE3`, `SQLite 3.46.1`) with Auto Ontology Scope | `antirea-rust-v16` – `v19` | `100%` | `5 / 5 USABLE` (`0.63 ms` – `5.06 ms`; `32.4x` – `4,345.7x` speedup vs. naive hot-loop VM) | `0 / 5` (`0%`) |
+| 323-Node Multi-Channel Flagship Core & 4-Subsystem Commercial Enterprise Suite | `antirea-rust-v18` – `v19` | `100%` (`5,198` pairs / `18,991` tx) | `USABLE` (`0.37 ms/call` flagship; `15.72 ms` suite) | `0%` (`0 / 40` cumulative across 8 rounds) |
+| NVIDIA Auto Ontology Semantic Layer (`v1.2.0` + `auto-ontology-eval`) | `V16.0` – `V20.0` catalog | `28 / 28` (`100.0%`) treatment vs. `11 / 28` (`39.3%`) schema-only | `0` broken-run failures, `0` regressions | Read-only SQLite `set_authorizer` enforced |
 
-Application qualification also checks failure when the protected core/module is
-missing, producer/source/tool identity and saved execution evidence. Separate
-read-only auditors checked the native/managed application records without
-executing the applications themselves. Installed runtime dependencies remain
-required where applicable.
+## 2. Newly Implemented Phase 5 / `v1.1.0` Capabilities (Locally Verified — External Fleet `not_evaluated`)
 
-The first Go integration hit a 900-second outer timeout. A reviewed continuation
-reused that exact successful native build and completed integration in 954.977
-seconds with an 1800-second outer allowance. Its per-child timeout and correctness
-checks were unchanged. Both attempts were retained locally; the continuation is
-not an additional fresh native build. The independent auditor checked 96 clean
-process records and an EXE-plus-protected-DLL deployment without source or IR.
+Per repository policy (`AGENTS.md`), local build/functional/structural verification is strictly separated from external Multi-PC attacker fleet evaluation:
 
-## Implementation and trust limits
+| Capability | Local Verification Evidence (Windows x64) | External Attacker Fleet Status |
+| --- | --- | --- |
+| **Pure-Rust Engine `V20.0` (`antirea-rust-v20`, `Format v20`)**: `V20-M1` (`_mm_unpackhi_epi64` zero `pshufd 0xee` & zero `{11,17}` fallback rotations), `V20-M2` (`portable_simd128` 256-vector bit-exact SSE2 equivalence, cross-OS `.lib`/`lib*.a` & binary seed scan), `V20-M3` (live `.rdata` ciphertext digest ratchet) | `cargo test --manifest-path rust/Cargo.toml` (`15 / 15` passed), `0` seed leakage hits | **`not_evaluated`** (`verified_fleet_rounds = 0` in `antirea.ontology`) |
+| **Direct Cargo Library Crate VM Route (`compile-cargo` & `compile_cargo_crate_vm`)**: Automatic LLVM IR emission, Auto Ontology hot-loop exclusion, and `antirea-rust-v20` staticlib compilation | `tests/test_rust_multilang.py` (`5 / 5` passed on live Cargo crate) | **`not_evaluated`** |
+| **8-Layer C & LLVM IR Hardening (`antirea/hardening.py`)**: SHA-256 CSPRNG parameter/seed derivation, `anti_dump` volatile ephemeral scrub & pool integrity guard, `iat_api_hiding` internal symbol-table hash resolver, LLVM IR C-string XOR encryption & MBA instruction lowering | `tests/test_hardening.py` (`21 / 21` passed including Clang `-O2` DLL execution) & `tests/test_diversify.py` (`29 / 29` passed) | **`not_evaluated`** |
 
-Direct native validation now requires an independently source-compiled original;
-agreement between two outputs of the same normalization path is insufficient.
-Reference provenance binds the declared sources, compiler/link recipes, ABI
-evidence and multi-source signature merge. Public validation binds these records
-to the saved owned build. It is not cryptographic attestation against an operator
-who controls all local files or a hostile-code sandbox.
+## 3. Implementation and Trust Limits
 
-These are experimental scalar-core and owned CLI sample routes, not arbitrary
-packages, GUI applications or whole-language compatibility. macOS still needs
-real-host qualification. General Cargo application protection/linking, arbitrary
-project formats and runtime features remain incomplete.
+- Functional preservation and static structural checks do **not** by themselves establish resistance against external AI reverse-engineering agents; newly added `V20.0` and `hardening.py` transforms remain marked `not_evaluated` until run against the isolated Multi-PC attacker fleet.
+- While `V20-M2` provides a pure-Rust `portable_simd128` polyfill verified bit-for-bit against hardware `x86_64` SSE2 across 256 randomized 128-bit lane vectors and cross-OS staticlib/binary hygiene helpers, native `aarch64` Linux/macOS host linking and execution still require physical/CI target-host qualification.
+- Direct Cargo crate VM compilation (`compile-cargo` / `compile_cargo_crate_vm`) targets VM-lowerable scalar/pointer library functions (`antirea-ir`); arbitrary generic/async whole-workspace Rust binaries remain scoped through boundary library crates.
 
-Functional preservation does **not** establish resistance to REA, runtime analysis
-or cloning. No new external attack evaluation was run for these artifacts.
-Performance acceptance is also open: tiny native sample protected/baseline batch
-ratios were roughly 458x (C), 469x (C++) and 310x (Rust) on a shared host. These
-are small-function costs, not app startup times or an isolated performance SLA.
-
-For commands, prerequisites and exact supported input contracts, see
-[multi-language development](multilanguage-development.md). For requested versus
-implemented hardening, see [hardening capabilities](hardening-capabilities.md).
+For commands and language contracts, see [multi-language development](multilanguage-development.md). For C/IR hardening layer details, see [hardening capabilities](hardening-capabilities.md).

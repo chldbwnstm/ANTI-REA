@@ -25,14 +25,14 @@ phase-24 앱 연동 기록 (local-only record: `../results/2026-10-21/infrastruc
 | --- | --- | --- |
 | `anti_debug` | Windows x86/x64에서 기존 PEB `BeingDebugged` 값을 읽는 조건부 코드. 비정상 값이면 VM 키 계산이 달라질 수 있다. | 일반적인 디버거 차단, Frida·후킹 탐지, 모든 타깃에서의 보존·효과 |
 | `anti_tamper` | VM 진입 시 인코딩된 바이트코드 전체와 길이를 검사하는 32비트 체크섬. 알 수 없는 키·길이나 불일치면 `abort()` 경로를 사용한다. | 암호학적 인증, 실행 파일 전체/네이티브 코드의 무결성, 검사 코드 자체의 우회 불가능성 |
-| `mba_opaque` | 대수적으로 0이 되는 진단식과 MBA 보조 함수. | 대상 프로그램의 연산 전체를 MBA로 변환했다는 주장. 최적화로 사라질 수 있다. |
-| `string_constant_encryption` | 합성된 가드 서명 바이트 배열과 복원 보조 함수. | 사용자 프로그램의 문자열·상수 검색 및 암호화. 다른 경로의 바이트코드 인코딩과도 별개다. |
-| `iat_api_hiding` | 심벌 이름을 정수로 바꾸는 해시 보조 함수만 존재한다. | PEB 모듈 순회, export 검색, API 주소 해석, import/IAT 재작성 |
-| `multi_vm_indirect_dispatch` | 선택된 VM 함수가 둘 이상일 때 함수별 opcode/fetch/operand 매개변수, 별도 switch dispatcher, volatile 함수 포인터 슬롯을 생성한다. | 암호학적 독립성, 포인터·디코더 은닉, 분석 저항성 향상의 실증 |
-| `anti_dump` | 생성 경로에 해당 기능이 없다. | 메모리 덤프 차단, 페이지 보호, 헤더 삭제, 패킹 |
+| `mba_opaque` | C MBA·대수적 0 가드 보조 함수 생성 및 LLVM IR `i32`/`i64` `add`/`sub`/`xor` SSA 명령을 다형성 MBA + 수론적 불투명 0으로 변환하는 `rewrite_llvm_ir_mba` 제공. | VM 가상화 없이 단독 MBA만으로 정적 단순화를 영구 차단한다는 주장, 외부 공격 저항성 평가 완료 |
+| `string_constant_encryption` | 가드 서명 바이트 배열 암호화·가드 검증·volatile 소거 및 모듈 내부 `[N x i8] c"..."` LLVM IR 상수를 암호화하고 지연 복호화기를 주입하는 `encrypt_llvm_ir_cstrings` 제공. | 첫 호출 이후 메모리 상주 평문 은닉, 전역 외부 심벌 암호화, 외부 공격 저항성 평가 완료 |
+| `iat_api_hiding` | 솔트 기반 심벌 해시(`antirea_api_hash`)와 호출자가 등록한 내부 `antirea_symbol_entry_t` 디스패치 테이블에서 해시로 함수 포인터를 조회하는 `antirea_resolve_symbol_by_hash` 제공. | OS PEB/PE export 헤더 순회, 시스템 DLL import 은닉, IAT 재작성 |
+| `multi_vm_indirect_dispatch` | 선택된 VM 함수가 둘 이상일 때 SHA-256 카운터 스트림 기반 함수별 시드로 opcode/fetch/operand 매개변수, 별도 switch dispatcher, volatile 함수 포인터 슬롯을 생성한다. | 포인터·디코더의 비가시성, 단독 분석 저항성 향상의 외부 실증 |
+| `anti_dump` | 임시 작업 버퍼 volatile 0-소거(`antirea_scrub_ephemeral_bytes`, 컴파일러 메모리 장벽 포함)와 읽기 전용 가드 앵커 무결성 확인(`antirea_verify_guard_pool_integrity`) 제공. | OS 메모리 덤프 차단, 페이지 보호 변경, 실행 헤더 삭제, 패킹 |
 | `anti_llm_honeypot` | 참조되지 않는 IR 함수·데이터와 도달하지 않는 C 분기의 미끼 코드. | LLM에 대한 실증 효과 또는 바이너리 보존. 분석 에이전트에게 지시하는 프롬프트는 넣지 않는다. |
 
-`emit_peb_api_resolver` 같은 기존 함수 이름도 기능 증거가 아니다. 이 함수는 이름과 달리 API를 해석하지 않는다. 단일 함수 또는 multi-VM을 선택하지 않은 경로는 기존 공유·직접 호출 형식을 유지하며 여러 VM으로 집계하지 않는다. 과거 산출물의 구현 상태는 생성 당시 보고서를 따른다.
+`emit_peb_api_resolver`는 레거시 함수 이름을 유지하지만 의도적으로 OS PEB/PE 헤더를 순회하지 않으며 등록된 내부 심벌 디스패치 테이블만 해석한다. 매개변수 및 멀티 VM 시드 파생은 케르크호프스의 원칙에 따라 가역적 `random.Random` 대신 단방향 SHA-256 카운터 스트림을 사용한다. 단일 함수 또는 multi-VM을 선택하지 않은 경로는 기존 공유·직접 호출 형식을 유지하며 여러 VM으로 집계하지 않는다. 과거 산출물의 구현 상태는 생성 당시 보고서를 따른다.
 
 ## API와 선택 규칙
 

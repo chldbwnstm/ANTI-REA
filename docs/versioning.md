@@ -9,7 +9,7 @@ This document defines how versions are tracked, synchronized, and released acros
 ANTI-REA tracks two distinct version identifiers:
 
 1. **Repository & Package Version (`SemVer`: `MAJOR.MINOR.PATCH`)**
-   - Stored canonically in [`VERSION`](../VERSION) at the repository root (currently `1.0.0`).
+   - Stored canonically in [`VERSION`](../VERSION) at the repository root (currently `1.1.0`).
    - Follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html):
      - **`MAJOR` (`X.0.0`)**: Incompatible changes to the CLI (`antirea-cli compile-multilang`), MCP tool schemas (`antirea.defense_mcp`), or public protection report contract.
      - **`MINOR` (`1.X.0`)**: Backwards-compatible new defense passes, new language frontends, new MCP tools, or new protection engine format versions.
@@ -17,7 +17,7 @@ ANTI-REA tracks two distinct version identifiers:
 
 2. **Protection Engine Format Version (`antirea-rust-v<N>`, `format_version: <N>`)**
    - Stored in [`rust/crates/antirea-passes/src/lib.rs`](../rust/crates/antirea-passes/src/lib.rs) (`protection_report.json` fields `"engine"` and `"format_version"`).
-   - Tracks the structural schema and cryptographic generation of the emitted VM/CFF protection pass (currently `engine = "antirea-rust-v12"`, `format_version = 12`).
+   - Tracks the structural schema and cryptographic generation of the emitted VM/CFF protection pass (currently `engine = "antirea-rust-v20"`, `format_version = 20`).
    - Increment `format_version` whenever the VM bytecode encoding, `VmCtx` polymorphic synthesis rules, or `protection_report.json` structural fields change.
 
 ---
@@ -28,12 +28,12 @@ Whenever the repository version is bumped, **all** of the following files must b
 
 | File | Location / Field | Purpose |
 | :--- | :--- | :--- |
-| [`VERSION`](../VERSION) | Single-line plain text (`1.0.0`) | Canonical single source of truth |
-| [`pyproject.toml`](../pyproject.toml) | `[project] version = "1.0.0"` | Python package metadata |
-| [`antirea/__init__.py`](../antirea/__init__.py) | `__version__ = "1.0.0"` | Python runtime version export |
+| [`VERSION`](../VERSION) | Single-line plain text (`1.1.0`) | Canonical single source of truth |
+| [`pyproject.toml`](../pyproject.toml) | `[project] version = "1.1.0"` | Python package metadata |
+| [`antirea/__init__.py`](../antirea/__init__.py) | `__version__ = "1.1.0"` | Python runtime version export |
 | [`antirea/defense_mcp.py`](../antirea/defense_mcp.py) | `serverInfo.version` (imports `__version__`) | MCP JSON-RPC `initialize` handshake version |
-| [`rust/Cargo.toml`](../rust/Cargo.toml) | `[workspace.package] version = "1.0.0"` | Rust workspace crates (`antirea-cli`, `antirea-driver`, `antirea-ir`, `antirea-passes`, `antirea-vm`, etc.) |
-| [`rust/crates/antirea-passes/src/lib.rs`](../rust/crates/antirea-passes/src/lib.rs) | Generated runtime `Cargo.toml` `version = "1.0.0"` | Ephemeral protected binary crate manifest |
+| [`rust/Cargo.toml`](../rust/Cargo.toml) | `[workspace.package] version = "1.1.0"` | Rust workspace crates (`antirea-cli`, `antirea-driver`, `antirea-ir`, `antirea-passes`, `antirea-vm`, etc.) |
+| [`rust/crates/antirea-passes/src/lib.rs`](../rust/crates/antirea-passes/src/lib.rs) | Generated runtime `Cargo.toml` `version = "1.1.0"` | Ephemeral protected binary crate manifest |
 | [`CHANGELOG.md`](../CHANGELOG.md) | `## [X.Y.Z] - YYYY-MM-DD` | Human-readable release notes and history |
 | [`README.md`](../README.md) & [`docs/readme/README_*.md`](readme/) | `Version-vX.Y.Z` shield badge | Public version badge across all 22 language READMEs |
 

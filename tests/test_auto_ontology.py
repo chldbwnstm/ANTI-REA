@@ -641,6 +641,49 @@ entry:
         for mid in ("V19-M1", "V19-M2", "V19-M3"):
             self.assertGreaterEqual(v19_rounds[mid], 2)
 
+    def test_v20_foothold_and_mitigation_lineage_records_awaiting_fleet_rounds(self) -> None:
+        fhs_192, _ = ontology.default_foothold_lineage("V19.2")
+        open_192 = {fh["foothold_id"] for fh in fhs_192 if fh["status"] == "open"}
+        self.assertTrue(
+            {
+                "F15_LLVM_PSHUFD_0XEE_AND_FALLBACK_ROTS",
+                "F16_X86_ONLY_SIMD_AND_PE_ONLY_VALIDATION",
+                "F17_STATIC_RDATA_CIPHERTEXT_DECOUPLED_VAULT_SEED",
+            }.issubset(open_192)
+        )
+
+        v20_bundle = ontology.compile_defense_ontology(
+            db_root=self.tmp_path / "dbs-v20",
+            workspace_root=REPO_ROOT,
+            ir_modules=[self.ir_path],
+            scope_policy=self.policy,
+            benchmark_records=SAMPLE_OSS_METRICS,
+            target_engine_version="V20.0",
+        )
+        v20_open_ids = [
+            r[0]
+            for r in v20_bundle.execute_readonly_sql(
+                "SELECT foothold_id FROM attacker_footholds WHERE status = 'open' ORDER BY foothold_id"
+            )
+        ]
+        self.assertEqual(v20_open_ids, ["F11_PUBLIC_IO_DIFFERENTIAL_ORACLE_BOUNDARY"])
+
+        v20_mits = dict(
+            v20_bundle.execute_readonly_sql(
+                "SELECT mitigation_id, verified_fleet_rounds FROM defense_mitigations WHERE introduced_engine = 'V20.0'"
+            )
+        )
+        self.assertEqual(v20_mits, {"V20-M1": 0, "V20-M2": 0, "V20-M3": 0})
+
+        report = ontology_eval.run_ab_evaluation(
+            v20_bundle,
+            output_dir=self.tmp_path / "eval-v20",
+            workspace_root=REPO_ROOT,
+        )
+        self.assertEqual(report["status"], "completed")
+        self.assertEqual(report["treatment_accuracy"], 1.0)
+        self.assertEqual(report["lost"], [])
+
     def test_detects_symmetric_binary_boundary_input_collapse_advisory(self) -> None:
         sym_ir = """\
 define dso_local i64 @symmetric_finalize(i64 %state, i64 %secret) {

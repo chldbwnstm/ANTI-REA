@@ -126,11 +126,49 @@ class HardeningSuiteTests(unittest.TestCase):
         report = h.hardening_capabilities(params, runtime_source=h.emit_runtime_hardening_helpers(params),
                                          core_ir=h.emit_llvm_ir_honeypot(7), blob_count=4)
         self.assertEqual(report["independent_vm_parameter_sets"], 1)
-        self.assertEqual(report["layers"]["anti_dump"]["implementation"], "gap_not_implemented")
+        self.assertEqual(report["layers"]["anti_dump"]["implementation"], "ephemeral_scrub_and_pool_guard")
         self.assertEqual(report["layers"]["multi_vm_indirect_dispatch"]["implementation"], "not_applied_shared_dispatcher")
-        self.assertEqual(report["layers"]["iat_api_hiding"]["implementation"], "hash_helper_only")
+        self.assertEqual(report["layers"]["iat_api_hiding"]["implementation"], "internal_dispatch_table_resolver")
+        self.assertEqual(report["layers"]["string_constant_encryption"]["implementation"], "guard_pool_and_ir_cstring_cipher")
+        self.assertEqual(report["layers"]["mba_opaque"]["implementation"], "guard_and_ir_mba_rewriter")
         self.assertEqual(report["verified_retained_components"], [])
         self.assertEqual(report["external_resistance"], "not_evaluated")
+
+    def test_kerckhoffs_sha256_derivation_eliminates_linear_seed_stepping(self):
+        p1 = h.hardening_parameters(101)
+        p2 = h.hardening_parameters(101)
+        p3 = h.hardening_parameters(102)
+        self.assertEqual(p1, p2)
+        self.assertNotEqual(p1["poison_salt"], p3["poison_salt"])
+        seeds = h.derive_multi_vm_seeds(99, 6)
+        self.assertEqual(len(set(seeds)), 6)
+        # Verify non-affine spacing (no constant step s[i+1] - s[i] mod 2^64)
+        deltas = {(seeds[i + 1] - seeds[i]) & h.U64_MASK for i in range(len(seeds) - 1)}
+        self.assertGreaterEqual(len(deltas), 4)
+
+    def test_llvm_ir_cstring_encryption_and_mba_rewriter_units(self):
+        sample_ir = (
+            '@.str.secret = private unnamed_addr constant [14 x i8] c"ANTIREA_TOKEN\\00", align 1\n'
+            '@llvm.used = appending global [1 x ptr] [ptr @.str.secret], section "llvm.metadata"\n'
+            'define i64 @compute_tag(i64 %a, i64 %b) {\n'
+            'entry:\n'
+            '  %0 = add nsw i64 %a, %b\n'
+            '  %1 = xor i64 %0, 255\n'
+            '  %2 = sub i64 %1, %a\n'
+            '  %ch = load i8, ptr @.str.secret, align 1\n'
+            '  %ch64 = zext i8 %ch to i64\n'
+            '  %out = add i64 %2, %ch64\n'
+            '  ret i64 %out\n'
+            '}\n'
+        )
+        enc_ir, str_meta = h.encrypt_llvm_ir_cstrings(sample_ir, 0xCAFEBABE)
+        self.assertEqual(str_meta["encrypted_globals"], 1)
+        self.assertNotIn("ANTIREA_TOKEN", enc_ir)
+        self.assertIn("@__antirea_materialize_cstrings", enc_ir)
+
+        mba_ir, mba_meta = h.rewrite_llvm_ir_mba(enc_ir, 20261111)
+        self.assertGreaterEqual(mba_meta["rewritten_instructions"], 4)
+        self.assertNotIn("add nsw i64 %a, %b", mba_ir)
 
     def test_retained_evidence_does_not_accept_source_labels_or_unreferenced_helpers(self):
         params = h.hardening_parameters(7, enabled_layers=["anti_tamper"])
@@ -215,6 +253,116 @@ class CompiledHardeningTests(unittest.TestCase):
                 # Explicitly unload this test-owned DLL before Windows temp cleanup.
                 import _ctypes
                 _ctypes.FreeLibrary(dll._handle)
+
+    @unittest.skipUnless(os.name == "nt", "compiled helper execution uses a Windows DLL")
+    def test_compiled_dispatch_resolver_ephemeral_scrub_and_ir_passes(self):
+        params = h.hardening_parameters(31, enabled_layers=["iat_api_hiding", "anti_dump"])
+        salt = params["api_hash_salt"]
+        add_hash = h.api_symbol_hash("internal_secret_add", salt)
+        miss_hash = h.api_symbol_hash("nonexistent_entry", salt)
+        source = (
+            "typedef unsigned char uint8_t; typedef unsigned int uint32_t; typedef unsigned long long uint64_t;\n"
+            + h.emit_runtime_hardening_helpers(params)
+            + f"""
+static uint64_t internal_secret_add(uint64_t x, uint64_t y) {{ return (x + y) ^ 0x55aaULL; }}
+static const antirea_symbol_entry_t DISPATCH_TABLE[1] = {{
+    {{ 0x{add_hash:08x}u, (const void *)&internal_secret_add }}
+}};
+__declspec(dllexport) uint64_t invoke_by_hash(uint32_t hval, uint64_t x, uint64_t y) {{
+    typedef uint64_t (*fn_t)(uint64_t, uint64_t);
+    const void *p = antirea_resolve_symbol_by_hash(DISPATCH_TABLE, 1u, hval);
+    if (!p) return 0xdeadbeefULL;
+    return ((fn_t)p)(x, y);
+}}
+__declspec(dllexport) uint32_t scrub_probe(uint8_t seed_byte) {{
+    uint8_t buf[16];
+    for (unsigned i = 0; i < 16u; ++i) buf[i] = (uint8_t)(seed_byte + i + 1u);
+    antirea_scrub_ephemeral_bytes(buf, 16u);
+    uint32_t acc = 0u;
+    for (unsigned i = 0; i < 16u; ++i) acc |= buf[i];
+    return acc;
+}}
+"""
+        )
+        # Also test retained IR evidence for anti_dump and iat_api_hiding
+        ir_check_src = (
+            "typedef unsigned char uint8_t; typedef unsigned int uint32_t; typedef unsigned long long uint64_t;\n"
+            + h.emit_runtime_hardening_helpers(params)
+            + "\nuint64_t dispatch(uint8_t *b, const antirea_symbol_entry_t *t, uint32_t hval) {\n"
+            "  antirea_scrub_ephemeral_bytes(b, 8u);\n"
+            "  return (uint64_t)(uintptr_t)antirea_resolve_symbol_by_hash(t, 1u, hval);\n"
+            "}\n"
+        ).replace("uintptr_t", "unsigned long long")
+        retained_ir = self.compile_ir(ir_check_src)
+        manifest = {"dispatcher_symbol": "dispatch", "parameters": {"hardening": params}}
+        ev = h.inspect_hardening_artifact(manifest, retained_ir)
+        self.assertTrue(ev["layers"]["anti_dump"]["runtime_component_retained"], retained_ir)
+        self.assertTrue(ev["layers"]["iat_api_hiding"]["runtime_component_retained"], retained_ir)
+
+        # Also compile LLVM IR transformed by encrypt_llvm_ir_cstrings + rewrite_llvm_ir_mba into a live DLL
+        raw_ir = (
+            '@.str.banner = private unnamed_addr constant [8 x i8] c"V20-OK!\\00", align 1\n'
+            'define dllexport i64 @ir_pipeline_eval(i64 %a, i64 %b) {\n'
+            'entry:\n'
+            '  %s0 = add i64 %a, %b\n'
+            '  %s1 = sub i64 %s0, 17\n'
+            '  %s2 = xor i64 %s1, %b\n'
+            '  %p1 = getelementptr inbounds [8 x i8], ptr @.str.banner, i64 0, i64 1\n'
+            '  %c0 = load i8, ptr @.str.banner, align 1\n'
+            '  %c1 = load i8, ptr %p1, align 1\n'
+            '  %z0 = zext i8 %c0 to i64\n'
+            '  %z1 = zext i8 %c1 to i64\n'
+            '  %tag = add i64 %z0, %z1\n'
+            '  %res = xor i64 %s2, %tag\n'
+            '  ret i64 %res\n'
+            '}\n'
+        )
+        enc_ir, _ = h.encrypt_llvm_ir_cstrings(raw_ir, 0x13579BDF)
+        mba_ir, _ = h.rewrite_llvm_ir_mba(enc_ir, 987654321)
+
+        with tempfile.TemporaryDirectory(prefix="antirea-v20-hardening-") as temporary:
+            dll_c = Path(temporary) / "helpers.dll"
+            res_c = subprocess.run(
+                [str(CLANG), "-O2", "-x", "c", "-", "-shared", "-nostdlib", "-fuse-ld=lld", "-Wl,/NOENTRY", "-o", str(dll_c)],
+                input=source, text=True, capture_output=True, timeout=30, check=False,
+            )
+            self.assertEqual(res_c.returncode, 0, res_c.stderr)
+
+            dll_ir = Path(temporary) / "irpass.dll"
+            res_ir = subprocess.run(
+                [str(CLANG), "-O2", "-x", "ir", "-", "-shared", "-nostdlib", "-fuse-ld=lld", "-Wl,/NOENTRY", "-o", str(dll_ir)],
+                input=mba_ir, text=True, capture_output=True, timeout=30, check=False,
+            )
+            self.assertEqual(res_ir.returncode, 0, res_ir.stderr)
+
+            lib_c = ctypes.CDLL(str(dll_c))
+            lib_ir = ctypes.CDLL(str(dll_ir))
+            try:
+                invoke = lib_c.invoke_by_hash
+                invoke.argtypes = [ctypes.c_uint32, ctypes.c_uint64, ctypes.c_uint64]
+                invoke.restype = ctypes.c_uint64
+                self.assertEqual(invoke(add_hash, 40, 2), (40 + 2) ^ 0x55AA)
+                self.assertEqual(invoke(miss_hash, 40, 2), 0xDEADBEEF)
+
+                scrub = lib_c.scrub_probe
+                scrub.argtypes = [ctypes.c_ubyte]
+                scrub.restype = ctypes.c_uint32
+                self.assertEqual(scrub(0x77), 0)
+
+                ir_eval = lib_ir.ir_pipeline_eval
+                ir_eval.argtypes = [ctypes.c_uint64, ctypes.c_uint64]
+                ir_eval.restype = ctypes.c_uint64
+                expected_tag = ord("V") + ord("2")
+                for a, b in [(0, 0), (40, 2), (0xFFFFFFFFFFFFFFFF, 1), (0x123456789ABCDEF0, 0x0FEDCBA987654321)]:
+                    s0 = (a + b) & h.U64_MASK
+                    s1 = (s0 - 17) & h.U64_MASK
+                    s2 = (s1 ^ b) & h.U64_MASK
+                    expected = (s2 ^ expected_tag) & h.U64_MASK
+                    self.assertEqual(ir_eval(a, b), expected)
+            finally:
+                import _ctypes
+                _ctypes.FreeLibrary(lib_c._handle)
+                _ctypes.FreeLibrary(lib_ir._handle)
 
 
 if __name__ == "__main__":

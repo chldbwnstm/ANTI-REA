@@ -281,6 +281,63 @@ pub fn mod_inv_u64(odd: u64) -> u64 {
     x
 }
 
+pub fn eval_portable_simd128_probe(
+    a1: i64,
+    a0: i64,
+    b1: i64,
+    b0: i64,
+    imm: i32,
+    shl: i32,
+    shr: i32,
+) -> (u64, u64) {
+    #[derive(Copy, Clone)]
+    struct Simd128([u64; 2]);
+    let set64x = |e1: i64, e0: i64| Simd128([e0 as u64, e1 as u64]);
+    let xor128 = |a: Simd128, b: Simd128| Simd128([a.0[0] ^ b.0[0], a.0[1] ^ b.0[1]]);
+    let add64 = |a: Simd128, b: Simd128| {
+        Simd128([a.0[0].wrapping_add(b.0[0]), a.0[1].wrapping_add(b.0[1])])
+    };
+    let shuf32 = |a: Simd128, m: i32| {
+        let w = [
+            a.0[0] as u32,
+            (a.0[0] >> 32) as u32,
+            a.0[1] as u32,
+            (a.0[1] >> 32) as u32,
+        ];
+        let d0 = w[(m & 3) as usize] as u64;
+        let d1 = w[((m >> 2) & 3) as usize] as u64;
+        let d2 = w[((m >> 4) & 3) as usize] as u64;
+        let d3 = w[((m >> 6) & 3) as usize] as u64;
+        Simd128([d0 | (d1 << 32), d2 | (d3 << 32)])
+    };
+    let slli64 = |a: Simd128, c: i32| {
+        let s = c as u32;
+        if s >= 64 {
+            Simd128([0, 0])
+        } else {
+            Simd128([a.0[0] << s, a.0[1] << s])
+        }
+    };
+    let srli64 = |a: Simd128, c: i32| {
+        let s = c as u32;
+        if s >= 64 {
+            Simd128([0, 0])
+        } else {
+            Simd128([a.0[0] >> s, a.0[1] >> s])
+        }
+    };
+    let unpackhi64 = |a: Simd128, b: Simd128| Simd128([a.0[1], b.0[1]]);
+
+    let va = set64x(a1, a0);
+    let vb = set64x(b1, b0);
+    let vx = add64(xor128(va, vb), shuf32(vb, imm));
+    let vs = xor128(slli64(vx, shl), srli64(vx, shr));
+    let vout = add64(vx, vs);
+    let lo = vout.0[0];
+    let hi = unpackhi64(vout, vout).0[0];
+    (lo, hi)
+}
+
 pub fn has_ascii_run_slice(bytes: &[u8], min_run: usize) -> bool {
     let mut run = 0usize;
     for &b in bytes {
@@ -873,33 +930,53 @@ pub fn generate_rust_defense(
         }
     };
     let hdr_c_mul = draw_safe_odd_u64(&mut rng);
-    let sbox_lits = sbox
+    let sbox_enc: Vec<u8> = sbox
         .iter()
         .enumerate()
-        .map(|(i, &b)| {
-            let enc = b ^ vk_sbox_mask(i, sbox_vault_salt);
-            format!("0x{enc:02x}u8")
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    let inv_sbox_lits = inv_sbox
+        .map(|(i, &b)| b ^ vk_sbox_mask(i, sbox_vault_salt))
+        .collect();
+    let inv_sbox_enc: Vec<u8> = inv_sbox
         .iter()
         .enumerate()
-        .map(|(i, &b)| {
-            let enc = b ^ vk_sbox_mask(i, inv_sbox_vault_salt);
-            format!("0x{enc:02x}u8")
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    let cluster_lut_lits = plain_cluster_lut
+        .map(|(i, &b)| b ^ vk_sbox_mask(i, inv_sbox_vault_salt))
+        .collect();
+    let cluster_lut_enc: Vec<u8> = plain_cluster_lut
         .iter()
         .enumerate()
-        .map(|(i, &b)| {
-            let enc = b ^ vk_sbox_mask(i, cluster_lut_salt);
-            format!("0x{enc:02x}u8")
-        })
+        .map(|(i, &b)| b ^ vk_sbox_mask(i, cluster_lut_salt))
+        .collect();
+    let sbox_lits = sbox_enc
+        .iter()
+        .map(|&enc| format!("0x{enc:02x}u8"))
         .collect::<Vec<_>>()
         .join(", ");
+    let inv_sbox_lits = inv_sbox_enc
+        .iter()
+        .map(|&enc| format!("0x{enc:02x}u8"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let cluster_lut_lits = cluster_lut_enc
+        .iter()
+        .map(|&enc| format!("0x{enc:02x}u8"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let (vault_ratchet_mul, vault_ratchet_xor, vault_init_masked) = loop {
+        let v_rm = draw_safe_odd_u64(&mut rng);
+        let v_rx = draw_safe_odd_u64(&mut rng);
+        let mut digest = v_rx;
+        for k in 0..16usize {
+            let idx = (k.wrapping_mul(15).wrapping_add(3)) & 255usize;
+            let lane = (sbox_enc[idx] as u64)
+                | ((inv_sbox_enc[(idx ^ 0x5a) & 255usize] as u64) << 8)
+                | ((cluster_lut_enc[(idx ^ 0xa5) & 255usize] as u64) << 16)
+                | (rdata_pool[idx] & 0xffff_ffff_0000_0000u64);
+            digest = digest.rotate_left(13).wrapping_mul(v_rm | 1) ^ lane;
+        }
+        let masked = vault_init ^ digest;
+        if is_safe_literal(masked) && masked != seed && masked != vault_init {
+            break (v_rm, v_rx, masked);
+        }
+    };
     let mut hdr_pair_rots = [0u32; 32];
     for r in hdr_pair_rots.iter_mut() {
         *r = rng.next_rot();
@@ -1889,7 +1966,7 @@ pub extern "C" fn {sym}({fn_sig_params}) -> u64 {{
             let smode = ((st + b) & 7) as u8;
             let extra_slot = arena_chaff_base + ((st * 13 + b * 7) % arena_extra);
             stage_body.push_str(&format!(
-                "    {{\n        let rp = read_rdata_pool({sbank}usize, ((acc as usize) ^ {sidx}usize) & 31usize);\n        let sb = ctx.sbox_u64(acc.rotate_left({srot0}u32) ^ rp, {sk0}u64);\n        let mixed = unsafe {{\n            let va = _mm_set_epi64x((sb ^ black_box({sk1}u64)) as i64, acc.wrapping_add(rp) as i64);\n            let vb = _mm_set_epi64x(rp.rotate_right({srot1}u32) as i64, salt_in as i64);\n            let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf4:02x}));\n            (_mm_cvtsi128_si64(vx) as u64) ^ (_mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64).rotate_left({srot1}u32)\n        }};\n        acc = mixed.wrapping_mul(black_box({sk1}u64) | 1) ^ sb;\n        ctx.arena[{extra_slot}usize] = ctx.arena[{extra_slot}usize].wrapping_add(acc.rotate_left({srot0}u32)) ^ rp;\n"
+                "    {{\n        let rp = read_rdata_pool({sbank}usize, ((acc as usize) ^ {sidx}usize) & 31usize);\n        let sb = ctx.sbox_u64(acc.rotate_left({srot0}u32) ^ rp, {sk0}u64);\n        let mixed = unsafe {{\n            let va = _mm_set_epi64x((sb ^ black_box({sk1}u64)) as i64, acc.wrapping_add(rp) as i64);\n            let vb = _mm_set_epi64x(rp.rotate_right({srot1}u32) as i64, salt_in as i64);\n            let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf4:02x}));\n            (_mm_cvtsi128_si64(vx) as u64) ^ (_mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64).rotate_left({srot1}u32)\n        }};\n        acc = mixed.wrapping_mul(black_box({sk1}u64) | 1) ^ sb;\n        ctx.arena[{extra_slot}usize] = ctx.arena[{extra_slot}usize].wrapping_add(acc.rotate_left({srot0}u32)) ^ rp;\n"
             ));
             if (st & 3usize) == 0usize {
                 stage_body.push_str(&format!(
@@ -1928,10 +2005,86 @@ pub extern "C" fn {sym}({fn_sig_params}) -> u64 {{
     };
 
     let runtime_lib_rs = format!(
-        r#"//! Generated Pure-Rust Counter-Exploitation Runtime (Format v19, Tag 0x{tag})
-#![allow(clippy::all, non_snake_case, unused_variables, dead_code)]
+        r#"//! Generated Pure-Rust Counter-Exploitation Runtime (Format v20, Tag 0x{tag})
+#![allow(clippy::all, non_snake_case, unused_variables, dead_code, non_camel_case_types)]
 
+#[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
+
+#[cfg(not(target_arch = "x86_64"))]
+mod portable_simd128 {{
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    pub struct __m128i(pub [u64; 2]);
+
+    #[inline(always)]
+    pub unsafe fn _mm_set_epi64x(e1: i64, e0: i64) -> __m128i {{
+        __m128i([e0 as u64, e1 as u64])
+    }}
+
+    #[inline(always)]
+    pub unsafe fn _mm_cvtsi64_si128(a: i64) -> __m128i {{
+        __m128i([a as u64, 0u64])
+    }}
+
+    #[inline(always)]
+    pub unsafe fn _mm_cvtsi128_si64(a: __m128i) -> i64 {{
+        a.0[0] as i64
+    }}
+
+    #[inline(always)]
+    pub unsafe fn _mm_xor_si128(a: __m128i, b: __m128i) -> __m128i {{
+        __m128i([a.0[0] ^ b.0[0], a.0[1] ^ b.0[1]])
+    }}
+
+    #[inline(always)]
+    pub unsafe fn _mm_add_epi64(a: __m128i, b: __m128i) -> __m128i {{
+        __m128i([a.0[0].wrapping_add(b.0[0]), a.0[1].wrapping_add(b.0[1])])
+    }}
+
+    #[inline(always)]
+    pub unsafe fn _mm_shuffle_epi32(a: __m128i, imm8: i32) -> __m128i {{
+        let w = [
+            a.0[0] as u32,
+            (a.0[0] >> 32) as u32,
+            a.0[1] as u32,
+            (a.0[1] >> 32) as u32,
+        ];
+        let d0 = w[(imm8 & 3) as usize] as u64;
+        let d1 = w[((imm8 >> 2) & 3) as usize] as u64;
+        let d2 = w[((imm8 >> 4) & 3) as usize] as u64;
+        let d3 = w[((imm8 >> 6) & 3) as usize] as u64;
+        __m128i([d0 | (d1 << 32), d2 | (d3 << 32)])
+    }}
+
+    #[inline(always)]
+    pub unsafe fn _mm_slli_epi64(a: __m128i, imm8: i32) -> __m128i {{
+        let s = imm8 as u32;
+        if s >= 64 {{
+            __m128i([0, 0])
+        }} else {{
+            __m128i([a.0[0] << s, a.0[1] << s])
+        }}
+    }}
+
+    #[inline(always)]
+    pub unsafe fn _mm_srli_epi64(a: __m128i, imm8: i32) -> __m128i {{
+        let s = imm8 as u32;
+        if s >= 64 {{
+            __m128i([0, 0])
+        }} else {{
+            __m128i([a.0[0] >> s, a.0[1] >> s])
+        }}
+    }}
+
+    #[inline(always)]
+    pub unsafe fn _mm_unpackhi_epi64(a: __m128i, b: __m128i) -> __m128i {{
+        __m128i([a.0[1], b.0[1]])
+    }}
+}}
+
+#[cfg(not(target_arch = "x86_64"))]
+use portable_simd128::*;
 use core::hint::black_box;
 use core::mem::MaybeUninit;
 
@@ -1948,6 +2101,21 @@ pub static ANTIREA_INV_SBOX: [u8; 256] = [{inv_sbox_lits}];
 
 #[used]
 pub static ANTIREA_CLUSTER_LUT: [u8; 256] = [{cluster_lut_lits}];
+
+#[inline(always)]
+pub fn sample_vault_ciphertext_digest() -> u64 {{
+    let mut d = black_box({vault_ratchet_xor}u64);
+    for k in 0..16usize {{
+        let idx = (k.wrapping_mul(15).wrapping_add(3)) & 255usize;
+        let b0 = unsafe {{ core::ptr::read_volatile(ANTIREA_SBOX.as_ptr().add(idx)) }} as u64;
+        let b1 = unsafe {{ core::ptr::read_volatile(ANTIREA_INV_SBOX.as_ptr().add((idx ^ 0x5ausize) & 255usize)) }} as u64;
+        let b2 = unsafe {{ core::ptr::read_volatile(ANTIREA_CLUSTER_LUT.as_ptr().add((idx ^ 0xa5usize) & 255usize)) }} as u64;
+        let rw = unsafe {{ core::ptr::read_volatile(ANTIREA_RDATA_POOL.as_ptr().add(idx)) }} & 0xffff_ffff_0000_0000u64;
+        let lane = b0 | (b1 << 8) | (b2 << 16) | rw;
+        d = d.rotate_left(13).wrapping_mul(black_box({vault_ratchet_mul}u64) | 1) ^ lane;
+    }}
+    d
+}}
 
 #[inline(always)]
 pub fn read_rdata_pool(bank: usize, idx: usize) -> u64 {{
@@ -1986,7 +2154,7 @@ pub fn compute_entry_gate_and_state(arg0: u32, arg1: u32) -> (u64, [u64; 4]) {{
         let vb = _mm_set_epi64x(p0.rotate_left(7) as i64, p1.rotate_right(13) as i64);
         let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf5:02x}));
         let lo = _mm_cvtsi128_si64(vx) as u64;
-        let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
+        let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64;
         let n0 = lo.wrapping_mul(black_box({gate_seed_2}u64) | 1) ^ hi.rotate_left(19);
         let n1 = hi.wrapping_add(n0.rotate_right(13)) ^ p0;
         (n0, n1)
@@ -1998,7 +2166,7 @@ pub fn compute_entry_gate_and_state(arg0: u32, arg1: u32) -> (u64, [u64; 4]) {{
         let vb = _mm_set_epi64x(p2.rotate_right(9) as i64, p3.rotate_left(15) as i64);
         let vx = _mm_xor_si128(_mm_add_epi64(va, vb), _mm_shuffle_epi32(vb, 0x{fe_shuf6:02x}));
         let lo = _mm_cvtsi128_si64(vx) as u64;
-        let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
+        let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64;
         let n0 = (lo ^ p2).wrapping_mul(black_box({gate_seed_1}u64) | 1).rotate_left(23);
         let n1 = (hi.wrapping_sub(p3) ^ n0).wrapping_mul(black_box({gate_seed_0}u64) | 1);
         (n0, n1)
@@ -2029,13 +2197,12 @@ pub fn feistel_round_params(gate: u64, st: &[u64; 4], r: usize) -> (u64, u64, u3
         );
         let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf7:02x}));
         let lo = _mm_cvtsi128_si64(vx) as u64;
-        let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
+        let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64;
         let rk_add = lo.wrapping_mul(black_box({post_unseal_mul}u64) | 1)
             ^ hi.rotate_left({vr4}u32)
             ^ black_box({post_seed_0}u64);
         let rk_xor = hi.wrapping_add(rk_add.rotate_left({vr5}u32)) ^ td ^ black_box({post_seed_1}u64);
-        let rot = (((lo ^ hi) as u32 & 15) + 7 + (r as u32) * 5) & 63;
-        let rot_nz = if rot == 0 || rot == 11 || rot == 17 || rot == 47 || rot == 53 {{ {vr6}u32 }} else {{ rot }};
+        let rot_nz = HDR_PAIR_ROTS[(((lo ^ hi) as usize).wrapping_add(r.wrapping_mul(7))) & 31usize] ^ ({vr6}u32 & 0u32);
         (rk_add, rk_xor, rot_nz)
     }}
 }}
@@ -2225,7 +2392,7 @@ impl VmCtx {{
             let v0 = _mm_set_epi64x(s2 as i64, (s0.wrapping_mul(s1)) as i64);
             let v1 = _mm_set_epi64x((s2 ^ s3) as i64, (s2.rotate_left(23)) as i64);
             let vx = _mm_xor_si128(v0, v1);
-            let vshuf = _mm_srli_si128(vx, 8);
+            let vshuf = _mm_unpackhi_epi64(vx, vx);
             let vsum = _mm_add_epi64(vx, vshuf);
             (_mm_cvtsi128_si64(vsum) as u64)
                 ^ fp_tk_mix
@@ -2297,10 +2464,11 @@ impl VmCtx {{
         ctx.set_pair(8, fb_raw, m_fb, HDR_PAIR_ROTS[8]);
         ctx.set_pair(9, r1_raw, m_r1, HDR_PAIR_ROTS[9]);
         ctx.set_pair(10, perm_raw, m_pm, HDR_PAIR_ROTS[10]);
+        let live_vault_init = black_box({vault_init_masked}u64) ^ sample_vault_ciphertext_digest();
         ctx.set_pair(11, stk_add, m_sp, HDR_PAIR_ROTS[11]);
         ctx.set_pair(12, g0_raw, m_g0, HDR_PAIR_ROTS[12]);
         ctx.set_pair(13, g1_raw, m_g1, HDR_PAIR_ROTS[13]);
-        ctx.set_pair(14, black_box({vault_init}u64), m_g0.rotate_left(7), HDR_PAIR_ROTS[14]);
+        ctx.set_pair(14, live_vault_init, m_g0.rotate_left(7), HDR_PAIR_ROTS[14]);
         ctx.set_pair(15, init_sealed, m_g1.rotate_left({vr12}u32), HDR_PAIR_ROTS[15]);
         for b in 0..4usize {{
             let base_id = 16usize + (b << 2);
@@ -2352,7 +2520,7 @@ impl VmCtx {{
                 .rotate_left(13)
                 .wrapping_mul(black_box({vault_step_mul}u64) | 1)
                 ^ vp
-                ^ p_tok.wrapping_mul(black_box({vault_init}u64));
+                ^ p_tok.wrapping_mul(live_vault_init);
             ctx.set_pair(14, next_vk, r.swap_bytes(), HDR_PAIR_ROTS[14]);
             let tk_step_delta = next_vk.rotate_left((((p_tok >> 7) as u32) & 31) + 1) ^ vp.rotate_right({vault_vp_rot}u32);
             ctx.set_pair(0, ctx.trans_key_val() ^ tk_step_delta, r.rotate_left(7), HDR_PAIR_ROTS[0]);
@@ -2668,7 +2836,7 @@ impl VmCtx {{
             }};
             let vout = _mm_add_epi64(vx, vs);
             let r0 = _mm_cvtsi128_si64(vout) as u64;
-            let r1 = _mm_cvtsi128_si64(_mm_srli_si128(vout, 8)) as u64;
+            let r1 = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vout, vout)) as u64;
             let m_elo = r0 ^ site_salt;
             let m_ehi = r1 ^ site_salt.rotate_left({vr13}u32);
             let m_x0 = lo ^ site_salt.rotate_right({vr14}u32);
@@ -2807,8 +2975,7 @@ impl VmCtx {{
     #[inline(always)]
     pub fn reg_bias(&self, idx: usize) -> (u64, u32) {{
         let b = self.reg_bias_seed_val().wrapping_mul((idx as u64).wrapping_mul(3) | 1);
-        let r_raw = (((idx as u32).wrapping_mul(7) ^ 13) & 31) + 1;
-        let r = if r_raw == 11 || r_raw == 17 {{ {vr10}u32 }} else {{ r_raw }};
+        let r = HDR_PAIR_ROTS[(idx.wrapping_mul(7) ^ 13usize) & 31usize] ^ ({vr10}u32 & 0u32);
         (b, r)
     }}
 
@@ -2817,8 +2984,7 @@ impl VmCtx {{
         let s = sp & 127usize;
         let phys = 256usize + ((s.wrapping_mul(self.stk_mul()).wrapping_add(self.stk_add())) & 127usize);
         let bias = self.stk_bias_seed_val().wrapping_mul((s as u64).wrapping_mul(5) | 1);
-        let r_raw = (((s as u32).wrapping_mul(9) ^ 5) & 31) + 1;
-        let rot = if r_raw == 11 || r_raw == 17 {{ {vr11}u32 }} else {{ r_raw }};
+        let rot = HDR_PAIR_ROTS[(s.wrapping_mul(9) ^ 5usize) & 31usize] ^ ({vr11}u32 & 0u32);
         (bias, rot, phys)
     }}
 
@@ -3155,7 +3321,7 @@ impl VmCtx {{
             let vb = _mm_set_epi64x(h1 as i64, self.frm_bias_seed_val() as i64);
             let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf8:02x}));
             let lo = _mm_cvtsi128_si64(vx) as u64;
-            let hi = _mm_cvtsi128_si64(_mm_srli_si128(vx, 8)) as u64;
+            let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64;
             lo.wrapping_mul(fp0 | 1) ^ hi.rotate_left({vr14}u32)
         }}
     }}
@@ -3719,8 +3885,8 @@ pub unsafe extern "C" fn run_multilang(
     let diversification_json = format!(
         r#"{{
   "schema_version": 1,
-  "format_version": 19,
-  "engine": "antirea-rust-v19",
+  "format_version": 20,
+  "engine": "antirea-rust-v20",
   "seed": {seed},
   "dispatcher_symbol": "{dispatcher_symbol}",
   "cluster_symbols": [{}],
@@ -3731,6 +3897,9 @@ pub unsafe extern "C" fn run_multilang(
   "original_bytecode_sha256": "{raw_sha}",
   "generated_runtime_sha256": "{runtime_sha}",
   "counter_exploitation_passes": {{
+    "V20_M1_zero_srli_si128_pshufd_0xee_and_zero_fallback_rot_guards": true,
+    "V20_M2_cross_arch_portable_128bit_simd_polyfill": true,
+    "V20_M3_wx_rdata_vault_ciphertext_prologue_ratchet_binding": true,
     "V19_M1_position_coupled_nonlinear_per_index_route_lut_masking": true,
     "V19_M2_polymorphic_chacha20_sse2_pshufd_and_shift_pairs_in_fast_entropy": true,
     "V19_M3_gf2_homomorphic_full64_dynamic_blinding_of_hdr_route": true,
@@ -3801,7 +3970,7 @@ pub fn generate_multilang_rust_runtime(
         ));
     }
     let mut code = String::from(
-        "//! Generated Multi-Language Pure-Rust Runtime (antirea-rust-v19)\n#![allow(clippy::all, non_snake_case, unused_variables, dead_code)]\n\n",
+        "//! Generated Multi-Language Pure-Rust Runtime (antirea-rust-v20)\n#![allow(clippy::all, non_snake_case, unused_variables, dead_code, non_camel_case_types)]\n\n",
     );
     for (idx, (blob, disp_sym)) in blobs.iter().zip(dispatcher_symbols.iter()).enumerate() {
         let slot_seed = seed.wrapping_add((idx as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
@@ -3820,7 +3989,7 @@ pub fn write_multilang_generated_crate(out_dir: &Path, runtime_lib_rs: &str) -> 
     fs::create_dir_all(&src_dir).map_err(|e| format!("Failed to create multilang crate dir: {e}"))?;
     let cargo_toml = r#"[package]
 name = "antirea-multilang-runtime"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 
 [lib]
@@ -3851,7 +4020,7 @@ pub fn write_generated_crate(
 
     let cargo_toml = r#"[package]
 name = "antirea-generated-runtime"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 
 [lib]
@@ -4258,16 +4427,18 @@ mod tests {
 
             // Format v18+ metadata
             assert!(
-                rs.contains("Format v18") || rs.contains("Format v19"),
-                "Missing Format v18/v19 header"
+                rs.contains("Format v18") || rs.contains("Format v19") || rs.contains("Format v20"),
+                "Missing Format v18/v19/v20 header"
             );
             assert!(
                 art.diversification_json.contains("\"format_version\": 18")
                     || art.diversification_json.contains("\"format_version\": 19")
+                    || art.diversification_json.contains("\"format_version\": 20")
             );
             assert!(
                 art.diversification_json.contains("\"engine\": \"antirea-rust-v18\"")
                     || art.diversification_json.contains("\"engine\": \"antirea-rust-v19\"")
+                    || art.diversification_json.contains("\"engine\": \"antirea-rust-v20\"")
             );
 
             // V18-M2: GF(2^9) & GF(2^8) Galois LFSR prologue stepping (zero Hull-Dobell LCG & zero counted extra_scrub loop)
@@ -4307,7 +4478,7 @@ mod tests {
             181820261106,
         )
         .unwrap();
-        assert!(ml.contains("antirea-rust-v18") || ml.contains("antirea-rust-v19"));
+        assert!(ml.contains("antirea-rust-v18") || ml.contains("antirea-rust-v19") || ml.contains("antirea-rust-v20"));
         assert!(ml.contains("read_volatile(bc)"));
     }
 
@@ -4335,9 +4506,15 @@ mod tests {
             let art = generate_rust_defense(&lowered, &parsed, seed).unwrap();
             let rs = &art.runtime_lib_rs;
 
-            assert!(rs.contains("Format v19"), "Missing Format v19 header");
-            assert!(art.diversification_json.contains("\"format_version\": 19"));
-            assert!(art.diversification_json.contains("\"engine\": \"antirea-rust-v19\""));
+            assert!(rs.contains("Format v19") || rs.contains("Format v20"), "Missing Format v19/v20 header");
+            assert!(
+                art.diversification_json.contains("\"format_version\": 19")
+                    || art.diversification_json.contains("\"format_version\": 20")
+            );
+            assert!(
+                art.diversification_json.contains("\"engine\": \"antirea-rust-v19\"")
+                    || art.diversification_json.contains("\"engine\": \"antirea-rust-v20\"")
+            );
 
             // V19-M1: Position-coupled nonlinear per-index route_slot_mask (no scalar `(slot_salt() as u8)` route_lut XOR)
             assert!(rs.contains("pub fn route_slot_mask(&self, idx: usize) -> u8"));
@@ -4372,5 +4549,98 @@ mod tests {
 
         assert!(seen_fe_shifts.len() >= 3, "Expected >=3 distinct fast_entropy shift pairs across 8 seeds, got {seen_fe_shifts:?}");
         assert!(seen_hr_blinds.len() >= 3, "Expected >=3 distinct hdr_blind7 shift triples across 8 seeds, got {seen_hr_blinds:?}");
+    }
+
+    #[test]
+    fn test_v20_zero_srli_si128_cross_arch_polyfill_and_vault_ratchet() {
+        let root = repo_root();
+        let table = antirea_ir::default_opcode_table();
+        let ir_text = fs::read_to_string(
+            root.join(".runs/20261018T053820Z-fc74cc/defender/protected/core.prevm.ll"),
+        )
+        .unwrap();
+        let lowered = antirea_ir::lower_llvm_module_functions(
+            &ir_text,
+            &["antirea_score".to_string()],
+            0x414E_5449_5245_4156,
+        )
+        .unwrap();
+        let parsed = parse_llvm_vm_ir(&lowered, &table).unwrap();
+
+        for s in 0..8u64 {
+            let seed = 202020261111 + s * 524287;
+            let art = generate_rust_defense(&lowered, &parsed, seed).unwrap();
+            let rs = &art.runtime_lib_rs;
+
+            // Format v20 metadata
+            assert!(rs.contains("Format v20"), "Missing Format v20 header");
+            assert!(art.diversification_json.contains("\"format_version\": 20"));
+            assert!(art.diversification_json.contains("\"engine\": \"antirea-rust-v20\""));
+            assert!(art.diversification_json.contains("\"V20_M1_zero_srli_si128_pshufd_0xee_and_zero_fallback_rot_guards\": true"));
+            assert!(art.diversification_json.contains("\"V20_M2_cross_arch_portable_128bit_simd_polyfill\": true"));
+            assert!(art.diversification_json.contains("\"V20_M3_wx_rdata_vault_ciphertext_prologue_ratchet_binding\": true"));
+
+            // V20-M1: Zero _mm_srli_si128 (pshufd 0xee) and zero == 11 / == 17 rotation fallback guards
+            assert!(!rs.contains("_mm_srli_si128"), "Found residual _mm_srli_si128 in V20 runtime");
+            assert!(rs.contains("_mm_unpackhi_epi64"), "Expected _mm_unpackhi_epi64 upper-lane extraction");
+            assert!(!rs.contains("== 11"), "Found residual == 11 rotation guard in V20 runtime");
+            assert!(!rs.contains("== 17"), "Found residual == 17 rotation guard in V20 runtime");
+
+            // V20-M2: Cross-architecture #[cfg(target_arch = "x86_64")] + #[cfg(not(target_arch = "x86_64"))] polyfill
+            assert!(rs.contains("#[cfg(target_arch = \"x86_64\")]"));
+            assert!(rs.contains("#[cfg(not(target_arch = \"x86_64\"))]"));
+            assert!(rs.contains("mod portable_simd128"));
+
+            // V20-M3: W^X live .rdata vault ciphertext digest bound into init_in_place without VirtualProtect
+            assert!(rs.contains("pub fn sample_vault_ciphertext_digest() -> u64"));
+            assert!(rs.contains("live_vault_init"));
+            assert!(!rs.contains("VirtualProtect"));
+        }
+
+        // Direct bit-for-bit equivalence check between hardware x86_64 SSE2 and portable_simd128_eval
+        #[cfg(target_arch = "x86_64")]
+        {
+            unsafe fn hw_probe<const IMM: i32, const SHL: i32, const SHR: i32>(
+                a1: i64,
+                a0: i64,
+                b1: i64,
+                b0: i64,
+            ) -> (u64, u64) {
+                use core::arch::x86_64::*;
+                let va = _mm_set_epi64x(a1, a0);
+                let vb = _mm_set_epi64x(b1, b0);
+                let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(vb, IMM));
+                let vs = _mm_xor_si128(_mm_slli_epi64(vx, SHL), _mm_srli_epi64(vx, SHR));
+                let vout = _mm_add_epi64(vx, vs);
+                let lo = _mm_cvtsi128_si64(vout) as u64;
+                let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vout, vout)) as u64;
+                (lo, hi)
+            }
+
+            let mut rng = ChaCha20Csprng::new(202020261111).derive_stream(b"v20-simd-eq-test");
+            for step in 0..64usize {
+                let a0 = rng.next_u64() as i64;
+                let a1 = rng.next_u64() as i64;
+                let b0 = rng.next_u64() as i64;
+                let b1 = rng.next_u64() as i64;
+                let cases = [
+                    (unsafe { hw_probe::<0x1b, 3, 19>(a1, a0, b1, b0) }, eval_portable_simd128_probe(a1, a0, b1, b0, 0x1b, 3, 19)),
+                    (unsafe { hw_probe::<0x4b, 13, 7>(a1, a0, b1, b0) }, eval_portable_simd128_probe(a1, a0, b1, b0, 0x4b, 13, 7)),
+                    (unsafe { hw_probe::<0x93, 25, 5>(a1, a0, b1, b0) }, eval_portable_simd128_probe(a1, a0, b1, b0, 0x93, 25, 5)),
+                    (unsafe { hw_probe::<0xc9, 27, 15>(a1, a0, b1, b0) }, eval_portable_simd128_probe(a1, a0, b1, b0, 0xc9, 27, 15)),
+                ];
+                for (hw, sw) in cases {
+                    assert_eq!(hw, sw, "Mismatch at step={step}");
+                }
+            }
+        }
+
+        let ml = generate_multilang_rust_runtime(
+            std::slice::from_ref(&parsed),
+            &["antirea_entry_v20_test".to_string()],
+            202020261111,
+        )
+        .unwrap();
+        assert!(ml.contains("antirea-rust-v20"));
     }
 }

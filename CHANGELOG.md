@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ---
 
+## [1.1.0] - 2026-11-11
+
+### Highlights
+Closes **Phase 4 (`Dynamic Protection Hardening, Semantic Auto Ontology & Pure-Rust Engine V19 Evolution`)** following 8 consecutive Multi-PC external attacker fleet rounds (`0 / 40` standalone recoveries, `40 / 40 USABLE`), activates **Phase 5 (`Cross-Platform Runtime, Direct Cargo Crate Virtualization & Engine V20`)**, upgrades the Pure-Rust VM compiler to **`antirea-rust-v20` (`format_version: 20`)**, and completes all 8 auxiliary C/LLVM IR hardening layers in `antirea/hardening.py`.
+
+### Added
+- **Pure-Rust Engine `V20.0` (`antirea-rust-v20`, `format_version: 20`):**
+  - `V20-M1` (`F15` Closure): Replaced all 7 `_mm_srli_si128(..., 8)` upper-lane extractions (`pshufd xmm, xmm, 0xee`) with `_mm_unpackhi_epi64` and routed all 3 rotation fallback guards (`feistel_round_params`, `reg_bias`, `stk_params`) through ChaCha20-derived `HDR_PAIR_ROTS`.
+  - `V20-M2` (`F16` Closure — Cross-Platform & Direct Cargo Crate Route): Added bit-identical non-`x86_64` `portable_simd128` 128-bit lane polyfill (`aarch64`/portable Rust), cross-OS `.lib`/`lib*.a` staticlib resolution and PE/ELF/Mach-O seed/constant hygiene scanning (`scan_binary_for_*`), `--target <triple>` support, and direct Cargo library crate virtualization (`antirea-cli compile-cargo` and `antirea.rust_multilang.compile_cargo_crate_vm` with automatic zero-config `antirea.ontology` hot-loop scope filtering).
+  - `V20-M3` (`F17` Closure — Live `.rdata` Vault Ciphertext Ratchet): Added W^X-compliant `sample_vault_ciphertext_digest()` sampling `ANTIREA_SBOX`, `ANTIREA_INV_SBOX`, `ANTIREA_CLUSTER_LUT`, and `ANTIREA_RDATA_POOL` via `read_volatile` to unmask `vault_init_masked` inside `VmCtx::init_in_place`.
+- **Complete 8-Layer C & LLVM IR Hardening Suite (`antirea/hardening.py`):**
+  - Replaced `random.Random` and linear multi-VM seed stepping with one-way SHA-256 counter-mode CSPRNG derivation (**Kerckhoffs's Principle**).
+  - Implemented `anti_dump` (`ephemeral_scrub_and_pool_guard`: `antirea_scrub_ephemeral_bytes` volatile zeroizer with compiler barrier + `antirea_verify_guard_pool_integrity` read-only anchor check) and `iat_api_hiding` (`internal_dispatch_table_resolver`: registered `antirea_symbol_entry_t` dispatch-by-hash resolver `antirea_resolve_symbol_by_hash`).
+  - Added LLVM IR string literal XOR encryption (`encrypt_llvm_ir_cstrings`) and mixed Boolean-arithmetic `add`/`xor` instruction lowering (`rewrite_llvm_ir_mba`) verified in `inspect_hardening_artifact`.
+- **Auto Ontology `V20.0` Lineage (`antirea/ontology.py`):**
+  - Indexed `F15`–`F17` (`V19.2`) $\rightarrow$ `V20-M1`–`V20-M3` (`V20.0`, `verified_fleet_rounds = 0` pending external Multi-PC fleet evaluation) while maintaining `28 / 28` (`100.0%`) `auto-ontology-eval` A/B accuracy.
+
+### Changed
+- Advanced roadmap status from **Phase 4 (`[COMPLETED]`)** to **Phase 5 (`[ACTIVE]`)** across `docs/assets/defense-roadmap.svg`, `docs/assets/defense-roadmap-ko.svg`, `README.md`, and all 21 localized `docs/readme/README_*.md` guides.
+- Synchronized package and manifest versions to `1.1.0` across `VERSION`, `pyproject.toml`, `antirea/__init__.py`, `antirea/defense_mcp.py`, `rust/Cargo.toml`, and generated runtime `Cargo.toml` templates (`format_version: 20`).
+
+---
+
 ## [1.0.0] - 2026-11-01
 
 ### Highlights

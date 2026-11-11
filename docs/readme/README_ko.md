@@ -6,9 +6,9 @@
 
 **지키고 싶은 핵심 기능이 있나요? 바이너리 레벨까지 분석·복제되지 않게 보호하세요.**
 
-[![Version](https://img.shields.io/badge/Version-v1.0.0-10b981?style=flat-square)](../../CHANGELOG.md)
-[![방어 상태](https://img.shields.io/badge/Defense_Status-Phase_4_Active-38bdf8?style=flat-square)](#anti-rea-진화-로드맵)
-[![Rust Engine](https://img.shields.io/badge/Rust_Engine-antirea--rust--v19_(1.75%2B_MSVC)-dea584?style=flat-square&logo=rust&logoColor=white)](#지원-엔진)
+[![Version](https://img.shields.io/badge/Version-v1.1.0-10b981?style=flat-square)](../../CHANGELOG.md)
+[![방어 상태](https://img.shields.io/badge/Defense_Status-Phase_5_Active-38bdf8?style=flat-square)](#anti-rea-진화-로드맵)
+[![Rust Engine](https://img.shields.io/badge/Rust_Engine-antirea--rust--v20_(1.75%2B_Cross--Arch)-dea584?style=flat-square&logo=rust&logoColor=white)](#지원-엔진)
 [![Auto Ontology](https://img.shields.io/badge/Semantic_Scope-NVIDIA_Auto_Ontology_1.2-76b900?style=flat-square)](#시맨틱-보호-스코프-및-rsi-계보-추적-nvidia-auto-ontology)
 [![지원 언어](https://img.shields.io/badge/Languages-11개_언어_지원-007acc?style=flat-square)](#지원-프로그래밍-언어-supported-languages)
 [![MCP + CLI](https://img.shields.io/badge/MCP-stdio_%2B_CLI-5c4ee5?style=flat-square)](#빠른-시작)
@@ -18,7 +18,7 @@
 
 [REA](https://github.com/morluto/rea) 같은 리버스 엔지니어링 도구는 에이전트에게 *"저 앱의 이 기능이 어떻게 돌아가는지 분석해서 내 프로젝트에 똑같이 만들어줘"*라고 시키면 바이너리를 뜯어보고 원래 로직을 그대로 재구현해냅니다.
 
-**에이전틱 공격? 그럼 우리는 에이전틱 방어 — 시간이 갈수록 점점 강해지는 방어입니다.** **ANTI-REA**의 목표는 **REA가 분석할 수 있는 모든 대상과 분석 방식을 결국 전부 막아내는 것**입니다. 내 에이전트에게 **"내 프로그램의 핵심 기능이 REA에게 분석·복제되지 않도록 보호해줘"**라고 자연어로 말하면, 에이전트가 [NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology) 기반 시맨틱 스코프 분석기로 내부 핫루프 성능 함정을 피해 비밀·경계 함수와 주변 단서만 정밀 선별하고, 순수 Rust 다형성 VM(`antirea-rust-v19`, `Format v19`)으로 가상화·난독화를 걸어 비트 단위 동작 일치와 응답 지연·배치 실행 속도를 검증해 알려줍니다.
+**에이전틱 공격? 그럼 우리는 에이전틱 방어 — 시간이 갈수록 점점 강해지는 방어입니다.** **ANTI-REA**의 목표는 **REA가 분석할 수 있는 모든 대상과 분석 방식을 결국 전부 막아내는 것**입니다. 내 에이전트에게 **"내 프로그램의 핵심 기능이 REA에게 분석·복제되지 않도록 보호해줘"**라고 자연어로 말하면, 에이전트가 [NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology) 기반 시맨틱 스코프 분석기로 내부 핫루프 성능 함정을 피해 비밀·경계 함수와 주변 단서만 정밀 선별하고, 순수 Rust 다형성 VM(`antirea-rust-v20`, `Format v20`)으로 가상화·난독화를 걸어 비트 단위 동작 일치와 응답 지연·배치 실행 속도를 검증해 알려줍니다.
 
 ---
 
@@ -35,21 +35,21 @@
 
 ## 지원 프로그래밍 언어 (Supported Languages)
 
-ANTI-REA는 순수 Rust 다형성 VM 컴파일러(`antirea-rust-v19` · `antirea-cli compile-multilang` / `antirea.rust_multilang`)를 통해 **11개 네이티브·관리형(JVM/CLR)·스크립트 언어 전체**의 핵심 로직을 단일 네이티브 다형성 VM 파이프라인으로 통합 보호합니다.
+ANTI-REA는 순수 Rust 다형성 VM 컴파일러(`antirea-rust-v20` · `antirea-cli compile-multilang`, `compile-cargo` / `antirea.rust_multilang`)를 통해 **11개 네이티브·관리형(JVM/CLR)·스크립트 언어 전체**의 핵심 로직을 단일 네이티브 다형성 VM 파이프라인으로 통합 보호합니다.
 
-| 프로그래밍 언어 | 지원 환경 / 런타임 | 보호 방식 (`antirea-rust-v19`) | 산출 및 배포 형태 |
+| 프로그래밍 언어 | 지원 환경 / 런타임 | 보호 방식 (`antirea-rust-v20`) | 산출 및 배포 형태 |
 |:---|:---|:---|:---|
-| **C** | Clang / MSVC / LLVM | LLVM IR → Auto Ontology 스코프 → 순수 Rust 다형성 VM (`antirea-rust-v19`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
-| **C++** | Clang++ / MSVC / LLVM | LLVM IR → Auto Ontology 스코프 → 순수 Rust 다형성 VM (`antirea-rust-v19`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
-| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → Auto Ontology 스코프 → 순수 Rust 다형성 VM (`antirea-rust-v19`) | C-ABI 연동 & 독립 보호 네이티브 바이너리 |
-| **Swift** | Swift 5.x+ (LLVM Native) | Swift 프론트엔드 IR → Auto Ontology 스코프 → 순수 Rust 다형성 VM (`antirea-rust-v19`) | 네이티브 앱 코어 & 보호 실행 파일 |
-| **Go** | Go 1.20+ (Typed Native) | Pure-Go 수치 AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v19`) | 패키지 코어 분리 보호 & 네이티브 바이너리 연동 |
-| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | C# / CIL 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v19`) | 관리형 C# 앱 + 보호 네이티브 코어 (P/Invoke / EXE) |
-| **Java** | OpenJDK 17+ / JVM | Java 바이트코드 / 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v19`) | Java 애플리케이션 + JNI / 보호 네이티브 코어 |
-| **Kotlin** | Kotlin 1.9+ / JVM | Kotlin / JVM 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v19`) | Kotlin 앱 / 서버 서비스 + 보호 네이티브 코어 |
-| **Python** | Python 3.10 ~ 3.13 | Python AST 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v19`) & 하이브리드 번들 | 보호 네이티브 바이너리 / PYD 확장 & 모듈 번들 |
-| **JavaScript** | Node.js / Electron / 런타임 | JS 코어 AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v19`) & 네이티브 애드온 브리지 | 보호 네이티브 코어 & 독립 앱 번들 |
-| **TypeScript** | TypeScript 5.x+ | 타입 지정 TS AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v19`) & 네이티브 브리지 | 보호 네이티브 코어 & 트랜스파일 번들 |
+| **C** | Clang / MSVC / LLVM | LLVM IR → Auto Ontology 스코프 → 순수 Rust 다형성 VM (`antirea-rust-v20`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
+| **C++** | Clang++ / MSVC / LLVM | LLVM IR → Auto Ontology 스코프 → 순수 Rust 다형성 VM (`antirea-rust-v20`) | 독립 실행 파일(`.exe`) & 네이티브 라이브러리(DLL) |
+| **Rust** | `rustc` / Cargo / LLVM | Rust LLVM IR → Auto Ontology 스코프 → 순수 Rust 다형성 VM (`antirea-rust-v20`) | C-ABI 연동 & 독립 보호 네이티브 바이너리 |
+| **Swift** | Swift 5.x+ (LLVM Native) | Swift 프론트엔드 IR → Auto Ontology 스코프 → 순수 Rust 다형성 VM (`antirea-rust-v20`) | 네이티브 앱 코어 & 보호 실행 파일 |
+| **Go** | Go 1.20+ (Typed Native) | Pure-Go 수치 AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v20`) | 패키지 코어 분리 보호 & 네이티브 바이너리 연동 |
+| **C# (.NET)** | .NET 8 / 9 (CLR / IL) | C# / CIL 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v20`) | 관리형 C# 앱 + 보호 네이티브 코어 (P/Invoke / EXE) |
+| **Java** | OpenJDK 17+ / JVM | Java 바이트코드 / 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v20`) | Java 애플리케이션 + JNI / 보호 네이티브 코어 |
+| **Kotlin** | Kotlin 1.9+ / JVM | Kotlin / JVM 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v20`) | Kotlin 앱 / 서버 서비스 + 보호 네이티브 코어 |
+| **Python** | Python 3.10 ~ 3.13 | Python AST 코어 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v20`) & 하이브리드 번들 | 보호 네이티브 바이너리 / PYD 확장 & 모듈 번들 |
+| **JavaScript** | Node.js / Electron / 런타임 | JS 코어 AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v20`) & 네이티브 애드온 브리지 | 보호 네이티브 코어 & 독립 앱 번들 |
+| **TypeScript** | TypeScript 5.x+ | 타입 지정 TS AST 낮춤 → 순수 Rust 다형성 VM (`antirea-rust-v20`) & 네이티브 브리지 | 보호 네이티브 코어 & 트랜스파일 번들 |
 
 > [!TIP]
 > 언어별 아키텍처 및 세부 통합 스펙은 [다언어 개발 문서](../../docs/multilanguage-development.md)에서 자세히 확인하실 수 있습니다.
@@ -63,8 +63,8 @@ ANTI-REA는 순수 Rust 다형성 VM 컴파일러(`antirea-rust-v19` · `antirea
 - **Phase 1 · 정적 파일 보호 집중 [완료]:** 바이너리의 정적 디컴파일, Ghidra 분석, 수식 복원을 가상화(VM) 및 다계층 바이너리 하드닝으로 원천 저지합니다.
 - **Phase 2 · 정적 보호 강화 [완료]:** 함수별 독립 VM/디스패처 분리, 명령어 융합(Fusion), 바이트코드 무결성 체크섬, 심볼 관계 위장으로 정적 분석을 심층 방어합니다.
 - **Phase 3 · 자동 공격 테스터 지속 확장 [완료]:** 별도의 자동 공격 AI 에이전트(Tester) 풀을 지속적으로 늘려 매일 실전 공방 테스트를 거치며 스스로 진화하는 방어 루프를 구축합니다.
-- **Phase 4 · 동적 보호 강화, 시맨틱 Auto Ontology 통합 및 순수 Rust `V19` 엔진 진화 [현재 활성화]**
-- **Phase 5 · ? [보안 등급 유지]**
+- **Phase 4 · 동적 보호 강화, 시맨틱 Auto Ontology 통합 및 순수 Rust `V19` 엔진 진화 [완료]:** `W^X` 스택 일시 복호화 S-Box 금고, 리프 클러스터 완전 인라이닝(내부 `call` `0`개), 3-Share 혼합 모듈러 헤더 분할, 64비트 전폭 `hdr_route` 블라인딩, NVIDIA Auto Ontology(`v1.2.0`) 스코프 최적화(오픈소스 `32.4x`~`4,345.7x` 가속) 및 8사이클 연속 외부 Multi-PC 공격 단독 복구 `0 / 40` 달성.
+- **Phase 5 · 크로스 플랫폼 런타임, Cargo 크레이트 직접 가상화 및 `V20` 실시간 암호문 래칫 확장 [현재 활성화]**
 - **Phase 6 · ? [보안 등급 유지]**
 - **Phase 7 · ? [미지의 영역 - The Frontier]**
 
@@ -98,7 +98,7 @@ app.exe에 VMProtect로 보호 적용 계획을 먼저 세워서 보여주고, �
 
 ### 3. 터미널에서 직접 쓰기 (`Use the terminal`)
 
-순수 Rust 방어 엔진(`antirea-cli`)을 빌드하고, Auto Ontology로 핫루프 함정을 제외한 보호 스코프를 추천받아 `antirea-rust-v19` 타깃을 컴파일·검증할 수 있습니다:
+순수 Rust 방어 엔진(`antirea-cli`)을 빌드하고, Auto Ontology로 핫루프 함정을 제외한 보호 스코프를 추천받아 `antirea-rust-v20` 타깃을 컴파일·검증할 수 있습니다:
 
 ```powershell
 # 1. 순수 Rust 방어 엔진 워크스페이스 릴리스 빌드
@@ -107,8 +107,9 @@ cargo build --release --manifest-path rust/Cargo.toml
 # 2. 임의의 LLVM IR 모듈에서 내부 핫루프 함정을 배제한 최적 보호 함수 추천 (Auto Ontology)
 .\.venv\Scripts\python.exe -m antirea.ontology_mcp --ir <module.ll> recommend-scope --max-slowdown 15
 
-# 3. 선별된 LLVM IR 함수들을 다형성 순수 Rust 정적 라이브러리(antirea-rust-v19)로 컴파일
+# 3. 선별된 LLVM IR 함수 또는 Cargo 크레이트를 다형성 순수 Rust 정적 라이브러리(antirea-rust-v20)로 컴파일
 .\rust\target\release\antirea-cli.exe compile-multilang --workspace . --input-ir <module.ll> --dispatchers <fn1,fn2> --output-dir <out_dir> --seed 90720261105
+.\rust\target\release\antirea-cli.exe compile-cargo --workspace . --manifest-path <Cargo.toml> --functions <fn1,fn2> --output-dir <out_dir> --seed 90720261111
 
 # 4. 기준(baseline) 및 이전(previous) 실행 파일 대비 엔드투엔드 후보 빌드 + 4대 검증 게이트 실행
 .\rust\target\release\antirea-cli.exe build --workspace . --input-build <ir_dir> --baseline <baseline.exe> --previous <prev.exe> --output-dir <out_dir> --seed 90720261105
@@ -132,7 +133,7 @@ cargo build --release --manifest-path rust/Cargo.toml
 
 실전 오픈소스나 상용 라이브러리에 무작정 전체 VM 가상화를 걸면, 함수 자체에는 루프 백엣지가 없지만 상위 데이터 루프 내부에서 수백만 번 호출되는 리프 보조 함수(`XXH64_round`, `counter_low`, `luaV_shiftl`, `sqlite3VarintLen` 등)까지 가상화되어 `174배`~`41,743배`의 지연 폭발(`UNUSABLE`)이 발생합니다.
 
-ANTI-REA는 **[NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology)**(`v1.2.0`) 및 **`auto-ontology-eval`**(`antirea.ontology`, `antirea.ontology_mcp`, `antirea.auto_ontology_sync`, `antirea.ontology_eval`)을 통합하여 LLVM IR 호출·루프 그래프, 11개 언어 변환 경로, 실전 오픈소스 벤치마크, 그리고 공격 단서(`F0`~`F14`) ↔ 방어 완화(`V15`~`V19`) 계보를 검증된 읽기 전용 SQLite + `AutoOntologyModelDocument` 시맨틱 계층으로 컴파일합니다:
+ANTI-REA는 **[NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology)**(`v1.2.0`) 및 **`auto-ontology-eval`**(`antirea.ontology`, `antirea.ontology_mcp`, `antirea.auto_ontology_sync`, `antirea.ontology_eval`)을 통합하여 LLVM IR 호출·루프 그래프, 11개 언어 변환 경로, 실전 오픈소스 벤치마크, 그리고 공격 단서(`F0`~`F17`) ↔ 방어 완화(`V15`~`V20`) 계보를 검증된 읽기 전용 SQLite + `AutoOntologyModelDocument` 시맨틱 계층으로 컴파일합니다:
 
 - **무설정(Zero-Config) 추이적 핫루프 탐지:** 수동 정책 파일 없이도 자연 루프 백엣지, 3-홉 추이적 루프 피호출 리프 함수(`called_from_loop` — JVM/Python/JS/TS 컴파일러가 합성한 익명 보조 함수 포함), `antirea-ir` VM 변환 가능 여부를 정적 판별합니다.
 - **대수적 대칭 경계 취약점 정적 탐지 및 비가환 프리믹싱 (`ONTO-SYM-V3`):** 경계 함수 내부의 정렬 비트슬라이스 대칭 `XOR`/`ADD` 인자 결합(`has_symmetric_input_mix`)을 사전 포착하고 호출자-피호출자 비가환 모듈러 링 프리믹싱을 자동 결합해 차분 프로빙에 의한 인자 차수 축약을 차단합니다.
@@ -189,10 +190,10 @@ ANTI-REA는 **[NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology)**(
 
 1. **순수 Rust 방어 합성 및 4대 검증 게이트 (`antirea-validate`):** `rust/crates/antirea-passes`에 새로운 다형성 VM·난독화 패스를 합성하고, 입출력 100% 일치·PE 시드/상수 은닉·다중 시드 교차 빌드 비동형성·실행 속도 기준을 검증합니다.
 2. **Multi-PC 병렬 블라인드 공격 및 텔레메트리 수집:** 원본 소스·IR·비공개 테스트는 일절 제외하고 **보호된 EXE와 공개 입출력 계약**만 격리된 외부 공격자 PC들에 배포합니다. 각 공격자 PC는 실측 속도(`usability-telemetry.json`)를 기록하고 REA MCP + Ghidra + Unicorn + 메모리/스택 차분 분석으로 복원을 시도하며 관측 단서를 `reversing-chain.json`에 남깁니다.
-3. **온톨로지 기반 표적 진화 (`V13` → `V19.0`):** 공격자 체인에서 식별된 구조적 단서(`F0`~`F14`)와 방어 패스(`V15`~`V19`, `ONTO-SYM-V3`)를 Auto Ontology SQLite 계보 테이블에 구조화해 미해결 공격 표면을 다음 세대 엔진에서 원천 소거하고 재검증합니다.
+3. **온톨로지 기반 표적 진화 (`V13` → `V20.0`):** 공격자 체인에서 식별된 구조적 단서(`F0`~`F17`)와 방어 패스(`V15`~`V20`, `ONTO-SYM-V3`)를 Auto Ontology SQLite 계보 테이블에 구조화해 미해결 공격 표면을 다음 세대 엔진에서 원천 소거하고 재검증합니다.
 
 ### 케르크호프스의 원칙 (Kerckhoffs's Principle): 오픈소스가 공개되어도 AI 역컴파일러에 뚫리지 않는 이유
-ANTI-REA는 오픈소스이므로 공격자(또는 공격자 AI)가 변환 엔진 전체 코드(`rust/crates/antirea-passes/src/lib.rs`)를 그대로 읽을 수 있습니다. **케르크호프스의 원칙**에 따라 `antirea-rust-v19`(`Format v19`)는 오직 빌드 `--seed`의 비밀성과 비가역적 암호학적 합성에만 안전성을 둡니다:
+ANTI-REA는 오픈소스이므로 공격자(또는 공격자 AI)가 변환 엔진 전체 코드(`rust/crates/antirea-passes/src/lib.rs`)를 그대로 읽을 수 있습니다. **케르크호프스의 원칙**에 따라 `antirea-rust-v20`(`Format v20`)는 오직 빌드 `--seed`의 비밀성과 비가역적 암호학적 합성에만 안전성을 둡니다:
 
 - **RFC 8439 20-라운드 `ChaCha20Csprng` 및 512비트 스폰지 화이트닝 (`V12-M1` / `V13-M1`, 시드 역산 `0`건):** 상수 1개로 내부 상태가 역산되는 `SplitMix64`·LCG·Xorshift를 배제하고 **RFC 8439 20-라운드 `ChaCha20Csprng` 스트림 생성기 + 비가역 512비트 ARX 스폰지 화이트닝**을 사용하며, 링크 직후 PE 전체에서 시드 바이트 노출 `0`건을 자동 검증합니다.
 - **빌드별 다형성 `VmCtx` 레이아웃, 비고정 `12..20` 클러스터 토폴로지 및 `.pdata` 스펙트럼 평탄화 (`V12-M2` / `V16-M3` / `V17-M2..M4`):** 매 빌드마다 Fisher-Yates로 `#[repr(C)]` `VmCtx` 필드 순서, 아레나 크기(`1,088..1,280` qwords), `.rdata` 상수 풀 크기(`288..512` qwords)를 무작위화하고, 고정 16개가 아닌 빌드별 `12..20`개 클러스터를 암호화 `ANTIREA_CLUSTER_LUT`로 라우팅하며 `8~45 KB` 중형 `.pdata` 브리지 함수를 합성해 이봉(bimodal) 함수 크기 단서를 제거합니다.
@@ -218,7 +219,7 @@ ANTI-REA는 오픈소스이므로 공격자(또는 공격자 AI)가 변환 엔�
 
 ## 지원 엔진
 
-기본 내장된 무료·오픈소스 자체 엔진(**`ANTI-REA Engine`** — 순수 Rust 워크스페이스 `rust/`(`antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`, 현재 **`antirea-rust-v19`** / `Format v19`) 및 NVIDIA Auto Ontology 시맨틱 스코프 엔진 기반 11개 지원 언어·실전 오픈소스·다중 모듈 바이너리 통합 보호)이 매일 진화하고 있으며, **상용 바이너리 프로텍터를 함께 결합하고 싶다면 Themida, VMProtect, Code Virtualizer를 연결해 에이전트에게 원하는 실행 속도와 방어 강도를 자연어로 지시할 수 있습니다.**
+기본 내장된 무료·오픈소스 자체 엔진(**`ANTI-REA Engine`** — 순수 Rust 워크스페이스 `rust/`(`antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`, 현재 **`antirea-rust-v20`** / `Format v20`) 및 NVIDIA Auto Ontology 시맨틱 스코프 엔진 기반 11개 지원 언어·실전 오픈소스·다중 모듈 바이너리 통합 보호)이 매일 진화하고 있으며, **상용 바이너리 프로텍터를 함께 결합하고 싶다면 Themida, VMProtect, Code Virtualizer를 연결해 에이전트에게 원하는 실행 속도와 방어 강도를 자연어로 지시할 수 있습니다.**
 
 ```text
 VMProtect(또는 Themida / Code Virtualizer)를 사용해서 실행 속도는 기존의 80% 이상을 유지하면서 핵심 로직은 최대한 강하게 방어해줘.
@@ -226,7 +227,7 @@ VMProtect(또는 Themida / Code Virtualizer)를 사용해서 실행 속도는 �
 
 | 엔진 | 연결 방식 | 현재 지원 상태 |
 |---|---|---|
-| **ANTI-REA Engine** | 자체 순수 Rust 네이티브 보호 워크스페이스 (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`), 11개 언어 `compile-multilang` VM 파이프라인 및 NVIDIA Auto Ontology (`antirea.ontology_mcp`) | 무료·오픈소스 순수 Rust **`antirea-rust-v19` (`Engine V19.0`, `Format v19`)**: RFC 8439 20-라운드 `ChaCha20Csprng` + 512비트 스폰지 화이트닝, 다형성 `12..20` 리프 클러스터(내부 `call` `0`개) + 중형 `.pdata` 브리지, `W^X` 스택 일시 복호화 S-Box 금고 + 인덱스별 비선형 `route_slot_mask`, 96워드 3-Share 혼합 모듈러($\text{GF}(2) \times \mathbb{Z}_{2^{64}}$) 헤더 분할 + 64비트 전폭 `hdr_route` 블라인딩, 빌드별 ChaCha20 SSE2 `pshufd` 전단사 셔플, NVIDIA Auto Ontology(`v1.2.0`) 스코프 최적화(오픈소스 `32.4x`~`4,345.7x` 가속) 및 8사이클 외부 5-PC 공격 `0 / 40` 복원 검증 완료 |
+| **ANTI-REA Engine** | 자체 순수 Rust 네이티브 보호 워크스페이스 (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`), 11개 언어 `compile-multilang` VM 파이프라인 및 NVIDIA Auto Ontology (`antirea.ontology_mcp`) | 무료·오픈소스 순수 Rust **`antirea-rust-v20` (`Engine V20.0`, `Format v20`)**: 크로스 아키텍처 `portable_simd128` 및 `_mm_srli_si128` 완전 소거(`V20-M1`/`V20-M2`), 실시간 `.rdata` 암호문 금고 래칫(`V20-M3`), Cargo 크레이트 직접 가상화 `compile-cargo`(로컬 검증 완료 · 외부 플릿 평가 `not_evaluated`), 그리고 `V19.0` 기준 8사이클 외부 5-PC 공격 `0 / 40` 복원 및 NVIDIA Auto Ontology(`v1.2.0`) 스코프 최적화(오픈소스 `32.4x`~`4,345.7x` 가속) |
 | **Themida** | 방어 MCP/CLI (`.tmd`/`.tm` 프로젝트) | Windows 네이티브 x86/x64 PE 어댑터 구현 완료 (로컬 설치본 연결 필요) |
 | **VMProtect** | 방어 MCP/CLI (`.vmp` 프로젝트) | Windows 네이티브 x86/x64 PE 어댑터 구현 완료 (로컬 설치본 연결 필요) |
 | **Code Virtualizer** | 방어 MCP/CLI (`.cv` 프로젝트) | Windows 네이티브 x86/x64 PE 어댑터 구현 완료 (Legacy / v4 지원, 로컬 설치본 연결 필요) |

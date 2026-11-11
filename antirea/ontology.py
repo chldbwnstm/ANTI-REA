@@ -225,6 +225,33 @@ def default_foothold_lineage(
             "standalone_recovery_caused": 0,
             "summary": "VmCtx.hdr_route stores hdr_perm_idx in unblinded low 5 bits (hdr_route & 7 stays constant across iterations) and updates upper bits via static !127u64 mask.",
         },
+        {
+            "foothold_id": "F15_LLVM_PSHUFD_0XEE_AND_FALLBACK_ROTS",
+            "observed_engine": "V19.2",
+            "surface": "simd_unpackhi_and_fallback_rotations",
+            "severity": "low",
+            "witness_count": 4,
+            "standalone_recovery_caused": 0,
+            "summary": "Compiler lowers _mm_srli_si128(..., 8) into fixed pshufd xmm, xmm, 0xee across 7 call sites and 3 rotation fallback branches retain == 11 || == 17 guards.",
+        },
+        {
+            "foothold_id": "F16_X86_ONLY_SIMD_AND_PE_ONLY_VALIDATION",
+            "observed_engine": "V19.2",
+            "surface": "cross_arch_simd_and_cargo_route",
+            "severity": "medium",
+            "witness_count": 1,
+            "standalone_recovery_caused": 0,
+            "summary": "Unconditional x86_64 SSE2 intrinsics, PE-only .lib/seed scans, and missing direct Cargo crate VM compilation blocked portable AArch64/Unix Rust crate protection.",
+        },
+        {
+            "foothold_id": "F17_STATIC_RDATA_CIPHERTEXT_DECOUPLED_VAULT_SEED",
+            "observed_engine": "V19.2",
+            "surface": "rdata_vault_ciphertext_binding",
+            "severity": "medium",
+            "witness_count": 1,
+            "standalone_recovery_caused": 0,
+            "summary": "VmCtx::init_in_place initialized vault_state from an immediate constant without sampling live .rdata ciphertext tables, allowing static table patching without immediate state divergence.",
+        },
     ]
 
     all_mitigations = [
@@ -332,6 +359,27 @@ def default_foothold_lineage(
             "introduced_engine": "V19.0",
             "mechanism": "Dynamic GF(2)-homomorphic full-64-bit blinding of VmCtx.hdr_route via per-build polymorphic upper-bit shift triples.",
             "verified_fleet_rounds": 2,
+        },
+        {
+            "mitigation_id": "V20-M1",
+            "foothold_id": "F15_LLVM_PSHUFD_0XEE_AND_FALLBACK_ROTS",
+            "introduced_engine": "V20.0",
+            "mechanism": "Replaces all _mm_srli_si128(..., 8) upper-lane extractions with _mm_unpackhi_epi64 and routes all fallback rotations through ChaCha20 HDR_PAIR_ROTS.",
+            "verified_fleet_rounds": 0,
+        },
+        {
+            "mitigation_id": "V20-M2",
+            "foothold_id": "F16_X86_ONLY_SIMD_AND_PE_ONLY_VALIDATION",
+            "introduced_engine": "V20.0",
+            "mechanism": "Bit-identical non-x86_64 portable_simd128 polyfill, cross-OS .lib/lib*.a & PE/ELF/Mach-O seed scanning, --target support, and compile-cargo route.",
+            "verified_fleet_rounds": 0,
+        },
+        {
+            "mitigation_id": "V20-M3",
+            "foothold_id": "F17_STATIC_RDATA_CIPHERTEXT_DECOUPLED_VAULT_SEED",
+            "introduced_engine": "V20.0",
+            "mechanism": "W^X-compliant live .rdata ciphertext digest (sample_vault_ciphertext_digest over S-Box, LUT, and pool) unmasks vault_init_masked inside VmCtx::init_in_place.",
+            "verified_fleet_rounds": 0,
         },
     ]
 
