@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xml:lang="en" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
   <title id="title">ANTI-REA Cosmic Defense Roadmap</title>
-  <desc id="desc">Defense roadmap: Phases 1 through 4 completed; Phase 5, cross-platform and Cargo V20 virtualization, active; Phases 6 and 7 upcoming.</desc>
+  <desc id="desc">Defense roadmap: Phases 1 through 4 completed (through Pure-Rust Engine V20); Phase 5, real-world project dogfooding and bug/inefficiency elimination, active; Phases 6 and 7 upcoming.</desc>
   <defs>
     <!-- Deep Space Background Gradient -->
     <linearGradient id="space-bg" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -135,10 +135,10 @@
     <text x="50" y="108" fill="#94a3b8" font-size="13">Continuously scaling and hardening defenses against autonomous REA reverse engineering</text>
 
     <!-- Current Sector Indicator (Top Right) -->
-    <rect x="896" y="34" width="254" height="54" rx="12" fill="#111c2a" stroke="#1e3448"/>
-    <text x="914" y="55" fill="#8298aa" font-size="11" font-weight="600" letter-spacing="1">CURRENT STATUS</text>
-    <circle cx="918" cy="73" r="4" fill="#38bdf8"/>
-    <text x="930" y="77" fill="#bae6fd" font-size="14" font-weight="700">Phase 5 : Cross-Platform V20</text>
+    <rect x="880" y="34" width="270" height="54" rx="12" fill="#111c2a" stroke="#1e3448"/>
+    <text x="898" y="55" fill="#8298aa" font-size="11" font-weight="600" letter-spacing="1">CURRENT STATUS</text>
+    <circle cx="902" cy="73" r="4" fill="#38bdf8"/>
+    <text x="914" y="77" fill="#bae6fd" font-size="14" font-weight="700">Phase 5 : Real-World Projects</text>
   </g>
 
   <!-- ==================== ORBITAL TRAJECTORY ==================== -->
@@ -228,7 +228,7 @@
       <circle cx="0" cy="205" r="4" fill="#4bbd9c"/>
 
       <text x="0" y="244" fill="#4bbd9c" font-size="12" font-weight="800" letter-spacing="1">PHASE 4</text>
-      <text x="0" y="270" fill="#f1f5f9" font-size="12" font-weight="700">Dynamic Protection Hardening</text>
+      <text x="0" y="270" fill="#f1f5f9" font-size="12" font-weight="700">Dynamic &amp; V20 Hardening</text>
       <rect x="-48" y="296" width="96" height="20" rx="5" fill="#142c27" stroke="#25584b"/>
       <text x="0" y="310" fill="#6ee7b7" font-size="10" font-weight="700">✓ COMPLETED</text>
     </g>
@@ -239,7 +239,7 @@
       <circle cx="0" cy="225" r="4" fill="#7dd3fc"/>
 
       <text x="0" y="259" fill="#38bdf8" font-size="12" font-weight="800" letter-spacing="1">PHASE 5</text>
-      <text x="0" y="285" fill="#f1f5f9" font-size="12" font-weight="700">Cross-Platform &amp; Cargo V20</text>
+      <text x="0" y="285" fill="#f1f5f9" font-size="12" font-weight="700">Real-World Bug &amp; Perf Fixes</text>
       <rect x="-42" y="311" width="84" height="20" rx="5" fill="#0c2e4e" stroke="#1d5c8e"/>
       <text x="0" y="325" fill="#38bdf8" font-size="10" font-weight="800">ACTIVE</text>
     </g>

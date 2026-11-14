@@ -63,8 +63,8 @@ ANTI-REA unifies core logic virtualization across **11 native, managed, and dyna
 - **Phase 1 · Focus on Static Binary Protection [COMPLETED]:** Protects compiled native binaries against static decompilation, Ghidra analysis, and direct formula recovery via control-flow virtualization and layered binary hardening.
 - **Phase 2 · Deep Static Hardening [COMPLETED]:** Extends static resilience by camouflaging handler boundaries, scrambling symbol relations, and concealing dispatcher internals.
 - **Phase 3 · Scaling Automated Attack Testers [COMPLETED]:** Continuously scales up autonomous attack agent instances, pitting new defense iterations against live automated testers every day to evolve defenses automatically.
-- **Phase 4 · Dynamic Protection Hardening, Semantic Auto Ontology & Pure-Rust Engine `V19` Evolution [COMPLETED]:** Ephemeral W^X S-Box vault, pure leaf cluster inlining (`0` internal calls), 3-share mixed-modulus header splitting, full-64-bit `hdr_route` blinding, NVIDIA Auto Ontology (`v1.2.0`) scope optimization (`32.4x`–`4,345.7x` OSS speedup), and `0 / 40` standalone recovery across 8 external Multi-PC fleet rounds.
-- **Phase 5 · Cross-Platform Runtime, Direct Cargo Crate Virtualization & Engine `V20` Live Ciphertext Ratchet [ACTIVE]**
+- **Phase 4 · Dynamic Protection Hardening, Semantic Auto Ontology & Pure-Rust Engine `V20` Completion [COMPLETED]:** Ephemeral W^X S-Box vault, pure leaf cluster inlining (`0` internal calls), 3-share mixed-modulus header splitting, full-64-bit `hdr_route` blinding, cross-platform `portable_simd128` & direct Cargo crate virtualization (`compile-cargo`), zero `pshufd 0xee` SIMD leak (`V20-M1`), live `.rdata` ciphertext vault ratchet (`V20-M3`), NVIDIA Auto Ontology (`v1.2.0`) scope optimization (`32.4x`–`4,345.7x` OSS speedup), and `0 / 45` standalone recovery across 9 external Multi-PC fleet rounds.
+- **Phase 5 · Real-World Project Dogfooding & Continuous Elimination of Inefficiencies and Bugs Across Diverse Projects [ACTIVE]:** Applying ANTI-REA across as many real-world software projects as possible to continuously uncover and fix runtime inefficiencies, build friction, and bugs.
 - **Phase 6 · ? [Classified]**
 - **Phase 7 · ? [The Frontier]**
 
@@ -158,19 +158,19 @@ Every supported language pipeline, 323-node flagship core, real open-source C en
 
 ### Kerckhoffs's Principle (Open-Source White-Box Defense · `antirea-rust-v19`)
 
-Even though ANTI-REA is open-source (`rust/crates/antirea-passes/src/lib.rs` is fully public to attackers and AI agents), **Kerckhoffs's Principle** guarantees that compiled `antirea-rust-v19` (`Format v19`) binaries cannot be inverted without the secret build `--seed`:
+Even though ANTI-REA is open-source (`rust/crates/antirea-passes/src/lib.rs` is fully public to attackers and AI agents), **Kerckhoffs's Principle** guarantees that compiled `antirea-rust-v20` (`Format v20`) binaries cannot be inverted without the secret build `--seed`:
 - **RFC 8439 20-Round `ChaCha20Csprng` & 512-Bit Sponge Whitening (`V12-M1` / `V13-M1`):** Replaces reversible PRNGs (`SplitMix64`, LCG, Xorshift) with an RFC 8439 20-round ChaCha20 stream generator + non-invertible 512-bit ARX sponge whitening and an automated PE `0`-seed-leakage gate.
 - **Polymorphic `VmCtx` Layout, Non-16 Cluster Topology (`12..20`), & `.pdata` Bridges (`V12-M2` / `V16-M3` / `V17-M2..M4`):** Fisher-Yates shuffles `#[repr(C)]` `VmCtx` fields, randomizes arena (`1,088..1,280` qwords) and `.rdata` (`288..512` qwords) pools, synthesizes `12..20` leaf clusters routed via a vault-encrypted `ANTIREA_CLUSTER_LUT`, and emits `8–45 KB` medium-tier `.pdata` bridges.
 - **On-Demand Ephemeral S-Box Vault (`W^X`), Galois LFSR Prologue, & Nonlinear `route_slot_mask` (`V14-M1` / `V18-M2` / `V19-M1`):** Decrypts substitution tables transiently on the stack (`write_volatile` zero-wipe), steps prologue init via $\text{GF}(2^9)/\text{GF}(2^8)$ Galois LFSRs, and masks `VmCtx.route_lut[0..255]` with a position-coupled nonlinear `route_slot_mask(idx)`.
 - **Pure Leaf Inlining (`0` Internal Calls), Per-Build ChaCha20 SSE2 Bijections, & Full-64-Bit `hdr_route` Blinding (`V14-M2..M3` / `V18-M1,M3` / `V19-M2..M3`):** Fuses all leaf helpers (`0` internal `call`s) with adaptive run-length cluster locality (`3.69x` faster flagship batch), 96-word 3-share mixed-modulus ($\text{GF}(2) \times \mathbb{Z}_{2^{64}}$) header splitting, volatile caller-frame scrubbing, per-build ChaCha20 SSE2 `pshufd` 4-lane bijections, and dynamic $\text{GF}(2)$-homomorphic full-64-bit `VmCtx.hdr_route` blinding.
 
-### Multi-Generation External Attack & RSI Verification (`V13` → `V14.2` → `V16–V18` → `V19.0`)
+### Multi-Generation External Attack & RSI Verification (`V13` → `V14.2` → `V16–V19` → `V20.0`)
 
-| Evaluation Metric | V13 (Dynamic Baseline) | V14.2 (Leaf Inlining + Vault) | V16.0 – V18.0 (6-Cycle RSI + Ontology) | **V19.0 (`Format v19` — Current)** |
+| Evaluation Metric | V13 (Dynamic Baseline) | V14.2 (Leaf Inlining + Vault) | V16.0 – V19.0 (8-Cycle RSI + Ontology) | **V20.0 (`Format v20` — Current)** |
 |:---|:---:|:---:|:---:|:---:|
-| **Standalone Logic Recovery (`recovered`)** | `2 / 5` (`c`, `rust`) | **`0 / 5` (`0%`)** | **`0 / 30` (`0%` across 6 rounds)** | **`0 / 10` (`0%`; `0 / 40` Cumulative Campaign)** |
-| **Vault / SIMD / `hdr_route` Fingerprint Surface** | `256B` Plaintext S-Box | `0` Plaintext (`W^X` Wipe) | `12..20` Clusters + `.pdata` Bridges + Galois LFSR | **Per-Index `route_slot_mask` + Per-Build SSE2 Bijections + Full-64b `hdr_route` Blinding** |
-| **Real OSS Speedup & Attacker-Side `USABLE` Rate** | `3 / 5 USABLE` | `5 / 5 USABLE` | **`30 / 30 USABLE` (`32.4x`–`4,345.7x` OSS Speedup)** | **`10 / 10 USABLE` (`40 / 40 = 100%`; `207,920 / 207,920` Bit-Exact Pairs)** |
+| **Standalone Logic Recovery (`recovered`)** | `2 / 5` (`c`, `rust`) | **`0 / 5` (`0%`)** | **`0 / 40` (`0%` across 8 rounds)** | **`0 / 5` (`0%`; `0 / 45` Cumulative Campaign)** |
+| **Vault / SIMD / `.rdata` Ratchet Surface** | `256B` Plaintext S-Box | `0` Plaintext (`W^X` Wipe) | `12..20` Clusters + `route_slot_mask` + Full-64b `hdr_route` | **`0` `pshufd 0xee` (`V20-M1`) + `portable_simd128` (`V20-M2`) + Live `.rdata` Ratchet (`V20-M3`)** |
+| **Real OSS Speedup & Attacker-Side `USABLE` Rate** | `3 / 5 USABLE` | `5 / 5 USABLE` | **`40 / 40 USABLE` (`32.4x`–`4,345.7x` OSS Speedup)** | **`5 / 5 USABLE` (`45 / 45 = 100%`; `233,910 / 233,910` Bit-Exact Pairs)** |
 
 ---
 
@@ -184,7 +184,7 @@ Even though ANTI-REA is open-source (`rust/crates/antirea-passes/src/lib.rs` is 
 
 | 引擎 | 连接方式 | 当前状态 |
 |---|---|---|
-| **ANTI-REA Engine** | 纯 Rust 原生保护工作区 (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`)、11 语言 `compile-multilang` 管线与 `antirea.ontology_mcp` | Active Pure-Rust **`antirea-rust-v20` (`Engine V20.0`, `Format v20`)**: cross-arch `portable_simd128` + zero `_mm_srli_si128` (`V20-M1`/`V20-M2`), live `.rdata` ciphertext vault ratchet (`V20-M3`), direct `compile-cargo` virtualization (locally verified; external fleet `not_evaluated`), building on `V19.0`'s `0 / 40` recovery across 8 external 5-PC attack cycles & NVIDIA Auto Ontology (`v1.2.0`) scope optimization (`32.4x`–`4,345.7x` OSS speedup) |
+| **ANTI-REA Engine** | 纯 Rust 原生保护工作区 (`rust/`: `antirea-ir`, `antirea-passes`, `antirea-validate`, `antirea-cli`)、11 语言 `compile-multilang` 管线与 `antirea.ontology_mcp` | Active Pure-Rust **`antirea-rust-v20` (`Engine V20.0`, `Format v20`)**: cross-arch `portable_simd128` + zero `pshufd 0xee` (`V20-M1`/`V20-M2`), live `.rdata` ciphertext vault ratchet (`V20-M3`), direct `compile-cargo` virtualization, and NVIDIA Auto Ontology (`v1.2.0`) scope optimization (`32.4x`–`4,345.7x` OSS speedup) — **`0 / 45` standalone recovery across 9 external 5-PC attack cycles** |
 | **Themida** | 防御 MCP/CLI (`.tmd`/`.tm`) | 已实现 Windows 原生 x86/x64 PE 适配器（需本地安装） |
 | **VMProtect** | 防御 MCP/CLI (`.vmp`) | 已实现 Windows 原生 x86/x64 PE 适配器（需本地安装） |
 | **Code Virtualizer** | 防御 MCP/CLI (`.cv`) | 已实现 Windows 原生 x86/x64 PE 适配器（支持 Legacy / v4，需本地安装） |

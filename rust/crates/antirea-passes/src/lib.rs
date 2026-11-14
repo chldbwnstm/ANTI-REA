@@ -1966,7 +1966,7 @@ pub extern "C" fn {sym}({fn_sig_params}) -> u64 {{
             let smode = ((st + b) & 7) as u8;
             let extra_slot = arena_chaff_base + ((st * 13 + b * 7) % arena_extra);
             stage_body.push_str(&format!(
-                "    {{\n        let rp = read_rdata_pool({sbank}usize, ((acc as usize) ^ {sidx}usize) & 31usize);\n        let sb = ctx.sbox_u64(acc.rotate_left({srot0}u32) ^ rp, {sk0}u64);\n        let mixed = unsafe {{\n            let va = _mm_set_epi64x((sb ^ black_box({sk1}u64)) as i64, acc.wrapping_add(rp) as i64);\n            let vb = _mm_set_epi64x(rp.rotate_right({srot1}u32) as i64, salt_in as i64);\n            let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf4:02x}));\n            (_mm_cvtsi128_si64(vx) as u64) ^ (_mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64).rotate_left({srot1}u32)\n        }};\n        acc = mixed.wrapping_mul(black_box({sk1}u64) | 1) ^ sb;\n        ctx.arena[{extra_slot}usize] = ctx.arena[{extra_slot}usize].wrapping_add(acc.rotate_left({srot0}u32)) ^ rp;\n"
+                "    {{\n        let rp = read_rdata_pool({sbank}usize, ((acc as usize) ^ {sidx}usize) & 31usize);\n        let sb = ctx.sbox_u64(acc.rotate_left({srot0}u32) ^ rp, {sk0}u64);\n        let mixed = unsafe {{\n            let va = _mm_set_epi64x((sb ^ black_box({sk1}u64)) as i64, acc.wrapping_add(rp) as i64);\n            let vb = _mm_set_epi64x(rp.rotate_right({srot1}u32) as i64, salt_in as i64);\n            let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf4:02x}));\n            (_mm_cvtsi128_si64(vx) as u64) ^ (_mm_cvtsi128_si64(black_box(_mm_unpackhi_epi64(black_box(vx), black_box(vb)))) as u64).rotate_left({srot1}u32)\n        }};\n        acc = mixed.wrapping_mul(black_box({sk1}u64) | 1) ^ sb;\n        ctx.arena[{extra_slot}usize] = ctx.arena[{extra_slot}usize].wrapping_add(acc.rotate_left({srot0}u32)) ^ rp;\n"
             ));
             if (st & 3usize) == 0usize {
                 stage_body.push_str(&format!(
@@ -2154,7 +2154,7 @@ pub fn compute_entry_gate_and_state(arg0: u32, arg1: u32) -> (u64, [u64; 4]) {{
         let vb = _mm_set_epi64x(p0.rotate_left(7) as i64, p1.rotate_right(13) as i64);
         let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf5:02x}));
         let lo = _mm_cvtsi128_si64(vx) as u64;
-        let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64;
+        let hi = _mm_cvtsi128_si64(black_box(_mm_unpackhi_epi64(black_box(vx), black_box(vb)))) as u64;
         let n0 = lo.wrapping_mul(black_box({gate_seed_2}u64) | 1) ^ hi.rotate_left(19);
         let n1 = hi.wrapping_add(n0.rotate_right(13)) ^ p0;
         (n0, n1)
@@ -2166,7 +2166,7 @@ pub fn compute_entry_gate_and_state(arg0: u32, arg1: u32) -> (u64, [u64; 4]) {{
         let vb = _mm_set_epi64x(p2.rotate_right(9) as i64, p3.rotate_left(15) as i64);
         let vx = _mm_xor_si128(_mm_add_epi64(va, vb), _mm_shuffle_epi32(vb, 0x{fe_shuf6:02x}));
         let lo = _mm_cvtsi128_si64(vx) as u64;
-        let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64;
+        let hi = _mm_cvtsi128_si64(black_box(_mm_unpackhi_epi64(black_box(vx), black_box(va)))) as u64;
         let n0 = (lo ^ p2).wrapping_mul(black_box({gate_seed_1}u64) | 1).rotate_left(23);
         let n1 = (hi.wrapping_sub(p3) ^ n0).wrapping_mul(black_box({gate_seed_0}u64) | 1);
         (n0, n1)
@@ -2197,7 +2197,7 @@ pub fn feistel_round_params(gate: u64, st: &[u64; 4], r: usize) -> (u64, u64, u3
         );
         let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf7:02x}));
         let lo = _mm_cvtsi128_si64(vx) as u64;
-        let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64;
+        let hi = _mm_cvtsi128_si64(black_box(_mm_unpackhi_epi64(black_box(vx), black_box(vb)))) as u64;
         let rk_add = lo.wrapping_mul(black_box({post_unseal_mul}u64) | 1)
             ^ hi.rotate_left({vr4}u32)
             ^ black_box({post_seed_0}u64);
@@ -2392,7 +2392,7 @@ impl VmCtx {{
             let v0 = _mm_set_epi64x(s2 as i64, (s0.wrapping_mul(s1)) as i64);
             let v1 = _mm_set_epi64x((s2 ^ s3) as i64, (s2.rotate_left(23)) as i64);
             let vx = _mm_xor_si128(v0, v1);
-            let vshuf = _mm_unpackhi_epi64(vx, vx);
+            let vshuf = black_box(_mm_unpackhi_epi64(black_box(vx), black_box(v1)));
             let vsum = _mm_add_epi64(vx, vshuf);
             (_mm_cvtsi128_si64(vsum) as u64)
                 ^ fp_tk_mix
@@ -2829,14 +2829,14 @@ impl VmCtx {{
                 _ => _mm_xor_si128(va, _mm_shuffle_epi32(vb, 0x{fe_shuf3:02x})),
             }};
             let vs = match mode & 3 {{
-                0 => _mm_xor_si128(_mm_slli_epi64(vx, {fe_sl0}), _mm_srli_epi64(vx, {fe_sr0})),
-                1 => _mm_xor_si128(_mm_slli_epi64(vx, {fe_sl1}), _mm_srli_epi64(vx, {fe_sr1})),
-                2 => _mm_xor_si128(_mm_slli_epi64(vx, {fe_sl2}), _mm_srli_epi64(vx, {fe_sr2})),
-                _ => _mm_xor_si128(_mm_slli_epi64(vx, {fe_sl3}), _mm_srli_epi64(vx, {fe_sr3})),
+                0 => black_box(_mm_xor_si128(_mm_slli_epi64(vx, {fe_sl0}), _mm_srli_epi64(vx, {fe_sr0}))),
+                1 => black_box(_mm_xor_si128(_mm_slli_epi64(vx, {fe_sl1}), _mm_srli_epi64(vx, {fe_sr1}))),
+                2 => black_box(_mm_xor_si128(_mm_slli_epi64(vx, {fe_sl2}), _mm_srli_epi64(vx, {fe_sr2}))),
+                _ => black_box(_mm_xor_si128(_mm_slli_epi64(vx, {fe_sl3}), _mm_srli_epi64(vx, {fe_sr3}))),
             }};
             let vout = _mm_add_epi64(vx, vs);
             let r0 = _mm_cvtsi128_si64(vout) as u64;
-            let r1 = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vout, vout)) as u64;
+            let r1 = _mm_cvtsi128_si64(black_box(_mm_unpackhi_epi64(black_box(vout), black_box(vb)))) as u64;
             let m_elo = r0 ^ site_salt;
             let m_ehi = r1 ^ site_salt.rotate_left({vr13}u32);
             let m_x0 = lo ^ site_salt.rotate_right({vr14}u32);
@@ -3321,7 +3321,7 @@ impl VmCtx {{
             let vb = _mm_set_epi64x(h1 as i64, self.frm_bias_seed_val() as i64);
             let vx = _mm_add_epi64(_mm_xor_si128(va, vb), _mm_shuffle_epi32(va, 0x{fe_shuf8:02x}));
             let lo = _mm_cvtsi128_si64(vx) as u64;
-            let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vx, vx)) as u64;
+            let hi = _mm_cvtsi128_si64(black_box(_mm_unpackhi_epi64(black_box(vx), black_box(vb)))) as u64;
             lo.wrapping_mul(fp0 | 1) ^ hi.rotate_left({vr14}u32)
         }}
     }}
@@ -4613,7 +4613,7 @@ mod tests {
                 let vs = _mm_xor_si128(_mm_slli_epi64(vx, SHL), _mm_srli_epi64(vx, SHR));
                 let vout = _mm_add_epi64(vx, vs);
                 let lo = _mm_cvtsi128_si64(vout) as u64;
-                let hi = _mm_cvtsi128_si64(_mm_unpackhi_epi64(vout, vout)) as u64;
+                let hi = _mm_cvtsi128_si64(core::hint::black_box(_mm_unpackhi_epi64(core::hint::black_box(vout), core::hint::black_box(vb)))) as u64;
                 (lo, hi)
             }
 

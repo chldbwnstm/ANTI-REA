@@ -387,7 +387,7 @@ pub fn build_and_validate_candidate(
     let inspection_json = format!(
         r#"{{
   "passed": {inspection_passed},
-  "engine": "antirea-rust-v19",
+  "engine": "antirea-rust-v20",
   "dispatcher_symbol": "{}",
   "executable_sha256": "{exe_sha256}",
   "core_object_sha256": "{core_obj_sha256}",

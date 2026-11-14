@@ -641,7 +641,7 @@ entry:
         for mid in ("V19-M1", "V19-M2", "V19-M3"):
             self.assertGreaterEqual(v19_rounds[mid], 2)
 
-    def test_v20_foothold_and_mitigation_lineage_records_awaiting_fleet_rounds(self) -> None:
+    def test_v20_foothold_and_mitigation_lineage_records_verified_fleet_rounds(self) -> None:
         fhs_192, _ = ontology.default_foothold_lineage("V19.2")
         open_192 = {fh["foothold_id"] for fh in fhs_192 if fh["status"] == "open"}
         self.assertTrue(
@@ -673,7 +673,8 @@ entry:
                 "SELECT mitigation_id, verified_fleet_rounds FROM defense_mitigations WHERE introduced_engine = 'V20.0'"
             )
         )
-        self.assertEqual(v20_mits, {"V20-M1": 0, "V20-M2": 0, "V20-M3": 0})
+        for mid in ("V20-M1", "V20-M2", "V20-M3"):
+            self.assertGreaterEqual(v20_mits[mid], 1)
 
         report = ontology_eval.run_ab_evaluation(
             v20_bundle,
