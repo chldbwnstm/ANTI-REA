@@ -1,0 +1,449 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:lang="ko" width="1200" height="696" viewBox="0 0 1200 696" role="img" aria-labelledby="title desc">
+  <title id="title">BEFORE ANTI-REA vs. AFTER ANTI-REA — 자율형 AI 역공학 방어 비교</title>
+  <desc id="desc">보호 전 바이너리가 REA와 Ghidra에 의해 즉시 디컴파일·복제되는 모습과, NVIDIA Auto Ontology 스코프 분리 및 순수 Rust 다형성 VM(antirea-rust-v20) 적용 후 외부 5-PC 공격 0/45 복원 차단 및 100% 비트 일치 실행을 달성한 결과를 한눈에 비교합니다.</desc>
+
+  <defs>
+    <!-- Canvas & Panel Gradients -->
+    <linearGradient id="bg-canvas" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#050811"/>
+      <stop offset="50%" stop-color="#0a1020"/>
+      <stop offset="100%" stop-color="#060a14"/>
+    </linearGradient>
+
+    <radialGradient id="glow-red" cx="22%" cy="18%" r="42%">
+      <stop offset="0%" stop-color="#ef4444" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#ef4444" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="glow-emerald" cx="78%" cy="18%" r="45%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.15"/>
+      <stop offset="55%" stop-color="#38bdf8" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="panel-red" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#130b12"/>
+      <stop offset="100%" stop-color="#09070d"/>
+    </linearGradient>
+
+    <linearGradient id="panel-blue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#091521"/>
+      <stop offset="100%" stop-color="#050b14"/>
+    </linearGradient>
+
+    <linearGradient id="border-shield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="55%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+
+    <linearGradient id="title-shield" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+
+    <linearGradient id="bar-red" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#dc2626"/>
+      <stop offset="60%" stop-color="#ef4444"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+
+    <linearGradient id="bar-scan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#34d399" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="verdict-red" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#280e14"/>
+      <stop offset="100%" stop-color="#18080c"/>
+    </linearGradient>
+
+    <linearGradient id="verdict-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#072227"/>
+      <stop offset="100%" stop-color="#071622"/>
+    </linearGradient>
+
+    <!-- Subtle Tech Grid Pattern -->
+    <pattern id="dot-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="1.5" cy="1.5" r="0.9" fill="#64748b" opacity="0.16"/>
+    </pattern>
+
+    <!-- Clip for Defensive Scanner Bar -->
+    <clipPath id="clip-defense-bar">
+      <rect x="32" y="544" width="494" height="10" rx="5"/>
+    </clipPath>
+
+    <!-- Soft Glow Filter -->
+    <filter id="soft-glow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Arrow Markers -->
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#f87171" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-cyan" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrow-emerald" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="#34d399" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <style>
+    .sans { font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", Inter, "Segoe UI", Arial, sans-serif; }
+    .mono { font-family: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, Menlo, monospace; }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    @keyframes flow-mesh {
+      from { stroke-dashoffset: 36; }
+      to { stroke-dashoffset: 0; }
+    }
+    @keyframes scan-sweep {
+      0%, 100% { transform: translateX(0px); }
+      50% { transform: translateX(364px); }
+    }
+    @keyframes red-breach-pulse {
+      0%, 100% { opacity: 0.95; }
+      50% { opacity: 0.65; }
+    }
+    @keyframes node-glow {
+      0%, 100% { opacity: 0.95; }
+      50% { opacity: 0.5; }
+    }
+
+    .pulse-fast { animation: pulse-dot 1.4s ease-in-out infinite; }
+    .mesh-flow { animation: flow-mesh 1.8s linear infinite; }
+    .mesh-flow-slow { animation: flow-mesh 2.8s linear infinite; }
+    .scan-beam { animation: scan-sweep 2.8s ease-in-out infinite; }
+    .breach-bar { animation: red-breach-pulse 2.2s ease-in-out infinite; }
+    .node-a { animation: node-glow 2.4s ease-in-out infinite; }
+    .node-b { animation: node-glow 2.4s ease-in-out infinite 0.8s; }
+    .node-c { animation: node-glow 2.4s ease-in-out infinite 1.6s; }
+  </style>
+
+  <!-- ==================== OUTER CANVAS ==================== -->
+  <rect width="1200" height="696" rx="20" fill="url(#bg-canvas)" stroke="#1e293b" stroke-width="1.5"/>
+  <rect width="1200" height="696" rx="20" fill="url(#dot-grid)"/>
+  <rect width="1200" height="696" rx="20" fill="url(#glow-red)"/>
+  <rect width="1200" height="696" rx="20" fill="url(#glow-emerald)"/>
+
+  <!-- ==================== TOP HERO HEADER ==================== -->
+  <!-- Left Verified Pill -->
+  <g transform="translate(26, 22)">
+    <rect width="182" height="26" rx="13" fill="#0d1d22" stroke="#1e4942" stroke-width="1"/>
+    <circle cx="16" cy="13" r="3.5" fill="#10b981" class="pulse-fast"/>
+    <text x="28" y="17" class="sans" font-size="10.5" font-weight="700" fill="#6ee7b7" letter-spacing="0.4">5-PC 실전 플릿 검증 완료</text>
+  </g>
+
+  <!-- Center Hero Title -->
+  <text x="600" y="39" text-anchor="middle" class="sans" font-size="22" font-weight="800" letter-spacing="0.4">
+    <tspan fill="#f87171">BEFORE ANTI-REA</tspan>
+    <tspan fill="#64748b" font-size="16" font-weight="700">   vs.   </tspan>
+    <tspan fill="url(#title-shield)">AFTER ANTI-REA</tspan>
+  </text>
+  <text x="600" y="61" text-anchor="middle" class="sans" font-size="12.5" fill="#94a3b8">
+    자율형 AI 역공학(REA + Ghidra + Unicorn) 대비 순수 Rust 다형성 VM(antirea-rust-v20) 방어 효과 비교
+  </text>
+
+  <!-- Right Kerckhoffs Pill -->
+  <g transform="translate(950, 22)">
+    <rect width="224" height="26" rx="13" fill="#0d1a2b" stroke="#1e3a5f" stroke-width="1"/>
+    <rect x="13" y="12" width="9" height="7" rx="1.5" fill="none" stroke="#38bdf8" stroke-width="1.4"/>
+    <path d="M15 12 V9.8 C15 8.2 20 8.2 20 9.8 V12" fill="none" stroke="#38bdf8" stroke-width="1.4"/>
+    <text x="29" y="17" class="sans" font-size="10.5" font-weight="700" fill="#7dd3fc" letter-spacing="0.3">케르크호프스 오픈소스 안전</text>
+  </g>
+
+  <!-- ==================== LEFT PANEL: BEFORE ANTI-REA ==================== -->
+  <g transform="translate(24, 80)">
+    <!-- Panel Container -->
+    <rect width="558" height="584" rx="14" fill="url(#panel-red)" stroke="#dc2626" stroke-width="1.6"/>
+
+    <!-- Window Header Bar -->
+    <path d="M 14 0 H 544 A 14 14 0 0 1 558 14 V 44 H 0 V 14 A 14 14 0 0 1 14 0 Z" fill="#240c13"/>
+    <line x1="0" y1="44" x2="558" y2="44" stroke="#4c1522" stroke-width="1"/>
+
+    <!-- Broken Shield Vector Icon -->
+    <g transform="translate(18, 11)">
+      <path d="M 11 1 L 21 5 V 12 C 21 17.5 16.5 21 11 23 C 5.5 21 1 17.5 1 12 V 5 Z" fill="#450a0a" stroke="#f87171" stroke-width="1.6"/>
+      <path d="M 7.5 8.5 L 14.5 15.5 M 14.5 8.5 L 7.5 15.5" stroke="#fca5a5" stroke-width="1.8" stroke-linecap="round"/>
+    </g>
+
+    <text x="48" y="27" class="sans" font-size="14" font-weight="800" fill="#fecaca" letter-spacing="0.4">BEFORE ANTI-REA</text>
+    <rect x="192" y="12" width="118" height="20" rx="6" fill="#3f111a" stroke="#7f1d1d" stroke-width="1"/>
+    <text x="251" y="25.5" text-anchor="middle" class="sans" font-size="10.5" font-weight="700" fill="#fca5a5">미보호 바이너리</text>
+
+    <!-- Status Pill Right -->
+    <rect x="454" y="11" width="88" height="22" rx="11" fill="#3b0c14" stroke="#dc2626" stroke-width="1"/>
+    <circle cx="468" cy="22" r="3.5" fill="#ef4444" class="pulse-fast"/>
+    <text x="480" y="25.5" class="sans" font-size="10.5" font-weight="700" fill="#f87171">원본 노출</text>
+
+    <!-- ===== BLOCK 1: BINARY X-RAY ===== -->
+    <!-- Left Sub-Box: Clean Ghidra Pseudocode -->
+    <rect x="18" y="58" width="322" height="168" rx="10" fill="#0d0a14" stroke="#3b1824" stroke-width="1.2"/>
+    <path d="M 28 58 H 330 A 10 10 0 0 1 340 68 V 84 H 18 V 68 A 10 10 0 0 1 28 58 Z" fill="#1a0e18"/>
+    <text x="30" y="75" class="mono" font-size="10" font-weight="700" fill="#f87171">GHIDRA 디컴파일 결과</text>
+    <text x="328" y="75" text-anchor="end" class="sans" font-size="9.5" font-weight="700" fill="#fb923c">100% 가독</text>
+
+    <text x="30" y="104" class="mono" font-size="11" fill="#c084fc">u64 <tspan fill="#f8fafc" font-weight="700">verify_core</tspan><tspan fill="#94a3b8">(u64 key) {</tspan></text>
+    <text x="44" y="124" class="mono" font-size="10.5" fill="#64748b">// .rdata:0x14002a10 평문 비밀 키</text>
+    <text x="44" y="144" class="mono" font-size="11" fill="#e2e8f0">u64 k = key ^ <tspan fill="#fbbf24" font-weight="700">0x9E3779B97F4A7C15</tspan>;</text>
+    <text x="44" y="164" class="mono" font-size="11" fill="#e2e8f0">u64 h = <tspan fill="#f87171">SBOX_PLAIN</tspan>[k &amp; 0xFF];</text>
+    <text x="44" y="184" class="mono" font-size="11" fill="#c084fc">return <tspan fill="#e2e8f0">rotl64(h, 17) == </tspan><tspan fill="#fbbf24">AUTH_TAG</tspan>;</text>
+    <text x="30" y="204" class="mono" font-size="11" fill="#94a3b8">}</text>
+
+    <!-- Right Sub-Box: Exposed Call Graph -->
+    <rect x="350" y="58" width="190" height="168" rx="10" fill="#0d0a14" stroke="#3b1824" stroke-width="1.2"/>
+    <path d="M 360 58 H 530 A 10 10 0 0 1 540 68 V 84 H 350 V 68 A 10 10 0 0 1 360 58 Z" fill="#1a0e18"/>
+    <text x="445" y="75" text-anchor="middle" class="sans" font-size="10" font-weight="700" fill="#f87171">노출된 호출 그래프</text>
+
+    <rect x="385" y="94" width="120" height="24" rx="6" fill="#23121b" stroke="#991b1b" stroke-width="1.2"/>
+    <text x="445" y="110" text-anchor="middle" class="mono" font-size="10.5" fill="#fecaca">main() / export</text>
+    <line x1="445" y1="118" x2="445" y2="136" stroke="#f87171" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+
+    <rect x="377" y="139" width="136" height="26" rx="6" fill="#321118" stroke="#ef4444" stroke-width="1.4"/>
+    <text x="445" y="156" text-anchor="middle" class="mono" font-size="10.5" font-weight="700" fill="#ffffff">verify_core()</text>
+    <line x1="445" y1="165" x2="445" y2="183" stroke="#f87171" stroke-width="1.5" marker-end="url(#arrow-red)"/>
+
+    <rect x="372" y="186" width="146" height="28" rx="6" fill="#450a0a" stroke="#f97316" stroke-width="1.3" stroke-dasharray="3 2"/>
+    <text x="445" y="204" text-anchor="middle" class="sans" font-size="10.5" font-weight="700" fill="#fdba74">.rdata 평문 키 &amp; S-Box</text>
+
+    <!-- ===== BLOCK 2: ATTACKER AGENT EXECUTION TRACE ===== -->
+    <rect x="18" y="238" width="522" height="174" rx="10" fill="#100b15" stroke="#2d1722" stroke-width="1.2"/>
+    <text x="32" y="259" class="sans" font-size="11" font-weight="700" fill="#f87171" letter-spacing="0.2">자율형 AI 공격자 분석 로그 (REA MCP + GHIDRA)</text>
+    <line x1="32" y1="268" x2="526" y2="268" stroke="#2a1520" stroke-width="1"/>
+
+    <!-- Row 1 -->
+    <rect x="32" y="278" width="24" height="19" rx="5" fill="#3b1018" stroke="#991b1b"/>
+    <text x="44" y="291" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="#fca5a5">01</text>
+    <text x="66" y="291" class="sans" font-size="12" font-weight="700" fill="#f8fafc">정적 디컴파일 완료</text>
+    <text x="206" y="291" class="sans" font-size="11.5" fill="#cbd5e1">핵심 계산식과 분기 구조가 1회 만에 복원됨</text>
+
+    <!-- Row 2 -->
+    <rect x="32" y="310" width="24" height="19" rx="5" fill="#3b1018" stroke="#991b1b"/>
+    <text x="44" y="323" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="#fca5a5">02</text>
+    <text x="66" y="323" class="sans" font-size="12" font-weight="700" fill="#f8fafc">.rdata 평문 추출</text>
+    <text x="206" y="323" class="sans" font-size="11.5" fill="#cbd5e1">내장 암호 키, 토큰, 치환 테이블이 그대로 덤프됨</text>
+
+    <!-- Row 3 -->
+    <rect x="32" y="342" width="24" height="19" rx="5" fill="#3b1018" stroke="#991b1b"/>
+    <text x="44" y="355" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="#fca5a5">03</text>
+    <text x="66" y="355" class="sans" font-size="12" font-weight="700" fill="#f8fafc">손쉬운 후킹 &amp; 패치</text>
+    <text x="206" y="355" class="sans" font-size="11.5" fill="#cbd5e1">단일 분기 변조만으로 라이선스·인증 즉시 우회</text>
+
+    <!-- Row 4 -->
+    <rect x="32" y="374" width="24" height="19" rx="5" fill="#450a0a" stroke="#ef4444"/>
+    <text x="44" y="387" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="#f87171">04</text>
+    <text x="66" y="387" class="sans" font-size="12" font-weight="700" fill="#fca5a5">1:1 AI 클론 완성</text>
+    <text x="206" y="387" class="sans" font-size="11.5" fill="#fecaca">코딩 에이전트가 수 초 만에 동일 기능 코드 복제</text>
+
+    <!-- ===== BLOCK 3: BREACH VERDICT CARD ===== -->
+    <rect x="18" y="424" width="522" height="142" rx="12" fill="url(#verdict-red)" stroke="#ef4444" stroke-width="1.5"/>
+
+    <circle cx="38" cy="445" r="7" fill="#450a0a" stroke="#ef4444" stroke-width="1.4"/>
+    <text x="38" y="449" text-anchor="middle" class="mono" font-size="10" font-weight="800" fill="#f87171">!</text>
+    <text x="54" y="449.5" class="sans" font-size="13" font-weight="800" fill="#fca5a5">최종 결과: 핵심 로직 완전 탈취 및 자동 복제</text>
+
+    <!-- 3-Column KPI Strip -->
+    <g transform="translate(32, 463)">
+      <rect x="0" y="0" width="156" height="52" rx="8" fill="#1b090e" stroke="#5c1722"/>
+      <text x="78" y="25" text-anchor="middle" class="mono" font-size="20" font-weight="800" fill="#ef4444">100%</text>
+      <text x="78" y="42" text-anchor="middle" class="sans" font-size="10.5" fill="#fca5a5">로직 복원율</text>
+
+      <rect x="169" y="0" width="156" height="52" rx="8" fill="#1b090e" stroke="#5c1722"/>
+      <text x="247" y="25" text-anchor="middle" class="sans" font-size="18" font-weight="800" fill="#fb923c">수 초</text>
+      <text x="247" y="42" text-anchor="middle" class="sans" font-size="10.5" fill="#fed7aa">복제 소요 시간</text>
+
+      <rect x="338" y="0" width="156" height="52" rx="8" fill="#1b090e" stroke="#5c1722"/>
+      <text x="416" y="25" text-anchor="middle" class="mono" font-size="20" font-weight="800" fill="#f87171">0</text>
+      <text x="416" y="42" text-anchor="middle" class="sans" font-size="10.5" fill="#fca5a5">방어 계층</text>
+    </g>
+
+    <!-- Exposure Meter -->
+    <text x="32" y="535" class="sans" font-size="10.5" fill="#fca5a5">핵심 로직 노출도</text>
+    <text x="526" y="535" text-anchor="end" class="sans" font-size="10.5" font-weight="800" fill="#ef4444">100% 완전 탈취</text>
+    <rect x="32" y="544" width="494" height="10" rx="5" fill="#1c090e" stroke="#4c1522" stroke-width="0.8"/>
+    <rect x="32" y="544" width="494" height="10" rx="5" fill="url(#bar-red)" class="breach-bar"/>
+  </g>
+
+  <!-- ==================== RIGHT PANEL: AFTER ANTI-REA ==================== -->
+  <g transform="translate(618, 80)">
+    <!-- Panel Container -->
+    <rect width="558" height="584" rx="14" fill="url(#panel-blue)" stroke="url(#border-shield)" stroke-width="1.8"/>
+
+    <!-- Window Header Bar -->
+    <path d="M 14 0 H 544 A 14 14 0 0 1 558 14 V 44 H 0 V 14 A 14 14 0 0 1 14 0 Z" fill="#091e27"/>
+    <line x1="0" y1="44" x2="558" y2="44" stroke="#163b47" stroke-width="1"/>
+
+    <!-- Shield Check Vector Icon -->
+    <g transform="translate(18, 11)">
+      <path d="M 11 1 L 21 5 V 12 C 21 17.5 16.5 21 11 23 C 5.5 21 1 17.5 1 12 V 5 Z" fill="#064e3b" stroke="#34d399" stroke-width="1.6"/>
+      <path d="M 6.8 12.2 L 9.8 15.2 L 15.6 9.0" fill="none" stroke="#a7f3d0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+
+    <text x="48" y="27" class="sans" font-size="14" font-weight="800" fill="#a7f3d0" letter-spacing="0.4">AFTER ANTI-REA</text>
+    <rect x="180" y="12" width="124" height="20" rx="6" fill="#07312a" stroke="#10b981" stroke-width="1"/>
+    <text x="242" y="25.5" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="#6ee7b7">antirea-rust-v20</text>
+
+    <!-- Status Pill Right -->
+    <rect x="416" y="11" width="126" height="22" rx="11" fill="#062c25" stroke="#10b981" stroke-width="1"/>
+    <circle cx="430" cy="22" r="3.5" fill="#34d399" class="pulse-fast"/>
+    <text x="441" y="25.5" class="sans" font-size="10.5" font-weight="700" fill="#6ee7b7">보호 완료 · W^X</text>
+
+    <!-- ===== BLOCK 1: ARCHITECTURE X-RAY ===== -->
+    <!-- Left Sub-Box: NVIDIA Auto Ontology Smart Split -->
+    <rect x="18" y="58" width="232" height="168" rx="10" fill="#07111d" stroke="#183847" stroke-width="1.2"/>
+    <path d="M 28 58 H 240 A 10 10 0 0 1 250 68 V 84 H 18 V 68 A 10 10 0 0 1 28 58 Z" fill="#0c202c"/>
+    <text x="134" y="75" text-anchor="middle" class="sans" font-size="10" font-weight="700" fill="#7dd3fc">Auto Ontology 스코프 분리</text>
+
+    <!-- Input IR Pill -->
+    <rect x="34" y="93" width="200" height="22" rx="6" fill="#112233" stroke="#2c4e66"/>
+    <text x="134" y="107.5" text-anchor="middle" class="mono" font-size="10" font-weight="700" fill="#e2e8f0">LLVM IR / 11개 언어 AST</text>
+
+    <!-- Split Branches -->
+    <path d="M 92 115 V 126 H 76 V 134" fill="none" stroke="#34d399" stroke-width="1.4" marker-end="url(#arrow-emerald)"/>
+    <path d="M 176 115 V 126 H 192 V 134" fill="none" stroke="#38bdf8" stroke-width="1.4" marker-end="url(#arrow-cyan)"/>
+
+    <!-- Left Branch: Hot Loops Native -->
+    <rect x="28" y="138" width="98" height="76" rx="8" fill="#07251f" stroke="#10b981" stroke-width="1.2"/>
+    <text x="77" y="156" text-anchor="middle" class="sans" font-size="10.5" font-weight="800" fill="#6ee7b7">내부 핫루프</text>
+    <text x="77" y="172" text-anchor="middle" class="mono" font-size="10" fill="#d1fae5">네이티브 -O2</text>
+    <rect x="36" y="182" width="82" height="22" rx="5" fill="#053b2e"/>
+    <text x="77" y="196.5" text-anchor="middle" class="mono" font-size="9.5" font-weight="800" fill="#34d399">최대 4,345x</text>
+
+    <!-- Right Branch: Secrets Virtualized -->
+    <rect x="136" y="138" width="104" height="76" rx="8" fill="#0a2038" stroke="#38bdf8" stroke-width="1.2"/>
+    <text x="188" y="156" text-anchor="middle" class="sans" font-size="10.5" font-weight="800" fill="#7dd3fc">핵심 비밀 로직</text>
+    <text x="188" y="172" text-anchor="middle" class="mono" font-size="10" fill="#e0f2fe">Rust VM v20</text>
+    <rect x="144" y="182" width="88" height="22" rx="5" fill="#0b3454"/>
+    <text x="188" y="196.5" text-anchor="middle" class="mono" font-size="9.5" font-weight="800" fill="#38bdf8">ChaCha20</text>
+
+    <!-- Right Sub-Box: Polymorphic VM Cluster Mesh -->
+    <rect x="260" y="58" width="280" height="168" rx="10" fill="#07111d" stroke="#183847" stroke-width="1.2"/>
+    <path d="M 270 58 H 530 A 10 10 0 0 1 540 68 V 84 H 260 V 68 A 10 10 0 0 1 270 58 Z" fill="#0c202c"/>
+    <text x="272" y="75" class="sans" font-size="10" font-weight="700" fill="#34d399">다형성 VM 클러스터 메시</text>
+    <text x="528" y="75" text-anchor="end" class="mono" font-size="9.5" font-weight="700" fill="#38bdf8">내부 CALL 0</text>
+
+    <!-- Animated Mesh Connections -->
+    <g fill="none" stroke-width="1.3">
+      <path d="M 332 114 L 386 108" stroke="#38bdf8" stroke-dasharray="4 4" class="mesh-flow"/>
+      <path d="M 332 114 L 386 144" stroke="#10b981" stroke-dasharray="4 4" class="mesh-flow-slow"/>
+      <path d="M 332 114 L 386 178" stroke="#38bdf8" stroke-dasharray="4 4" class="mesh-flow"/>
+      <path d="M 332 165 L 386 144" stroke="#10b981" stroke-dasharray="4 4" class="mesh-flow"/>
+      <path d="M 332 165 L 386 178" stroke="#34d399" stroke-dasharray="4 4" class="mesh-flow-slow"/>
+      <path d="M 418 108 L 468 124" stroke="#34d399" stroke-dasharray="4 4" class="mesh-flow-slow"/>
+      <path d="M 418 144 L 468 124" stroke="#38bdf8" stroke-dasharray="4 4" class="mesh-flow"/>
+      <path d="M 418 144 L 468 168" stroke="#34d399" stroke-dasharray="4 4" class="mesh-flow"/>
+      <path d="M 418 178 L 468 168" stroke="#38bdf8" stroke-dasharray="4 4" class="mesh-flow-slow"/>
+    </g>
+
+    <!-- Shuffled VmCtx Box -->
+    <rect x="272" y="96" width="60" height="40" rx="7" fill="#0d293a" stroke="#38bdf8" stroke-width="1.3"/>
+    <text x="302" y="113" text-anchor="middle" class="mono" font-size="10" font-weight="800" fill="#e0f2fe">VmCtx</text>
+    <text x="302" y="127" text-anchor="middle" class="sans" font-size="8.5" fill="#7dd3fc">필드 셔플</text>
+
+    <!-- 3-Share Badge -->
+    <rect x="272" y="148" width="60" height="34" rx="7" fill="#0b2421" stroke="#10b981" stroke-width="1.1"/>
+    <text x="302" y="163" text-anchor="middle" class="mono" font-size="9" font-weight="700" fill="#6ee7b7">3-Share</text>
+    <text x="302" y="175" text-anchor="middle" class="sans" font-size="8.5" fill="#a7f3d0">헤더 분할</text>
+
+    <!-- 12..20 Leaf Clusters -->
+    <g filter="url(#soft-glow)">
+      <circle cx="402" cy="108" r="14" fill="#0b2d2b" stroke="#34d399" stroke-width="1.5" class="node-a"/>
+      <text x="402" y="111.5" text-anchor="middle" class="mono" font-size="9.5" font-weight="800" fill="#ecfdf5">C1</text>
+
+      <circle cx="402" cy="144" r="14" fill="#0b263d" stroke="#38bdf8" stroke-width="1.5" class="node-b"/>
+      <text x="402" y="147.5" text-anchor="middle" class="mono" font-size="9.5" font-weight="800" fill="#e0f2fe">C7</text>
+
+      <circle cx="402" cy="178" r="14" fill="#0b2d2b" stroke="#34d399" stroke-width="1.5" class="node-c"/>
+      <text x="402" y="181.5" text-anchor="middle" class="mono" font-size="9.5" font-weight="800" fill="#ecfdf5">Cn</text>
+    </g>
+
+    <!-- W^X Vault & Ratchet -->
+    <rect x="466" y="102" width="64" height="42" rx="7" fill="#082a23" stroke="#10b981" stroke-width="1.3"/>
+    <text x="498" y="119" text-anchor="middle" class="mono" font-size="9.5" font-weight="800" fill="#6ee7b7">W^X 금고</text>
+    <text x="498" y="133" text-anchor="middle" class="mono" font-size="8.5" fill="#a7f3d0">평문 0 B</text>
+
+    <rect x="466" y="152" width="64" height="36" rx="7" fill="#0c2238" stroke="#38bdf8" stroke-width="1.2"/>
+    <text x="498" y="167" text-anchor="middle" class="sans" font-size="9.5" font-weight="800" fill="#7dd3fc">암호 래칫</text>
+    <text x="498" y="179" text-anchor="middle" class="mono" font-size="8.5" fill="#bae6fd">V20-M3</text>
+
+    <text x="400" y="214" text-anchor="middle" class="sans" font-size="9.5" fill="#94a3b8">12..20개 리프 클러스터 + .pdata 브리지</text>
+
+    <!-- ===== BLOCK 2: EXTERNAL 5-PC FLEET VERIFICATION ===== -->
+    <rect x="18" y="238" width="522" height="174" rx="10" fill="#08121f" stroke="#163242" stroke-width="1.2"/>
+    <text x="32" y="259" class="sans" font-size="11" font-weight="700" fill="#34d399" letter-spacing="0.2">외부 5-PC 공격 플릿 검증 (9사이클 · ~35.5시간 · 6,198회 호출)</text>
+    <line x1="32" y1="268" x2="526" y2="268" stroke="#142d3d" stroke-width="1"/>
+
+    <!-- Check Row 1 -->
+    <circle cx="44" cy="287" r="9" fill="#06392d" stroke="#10b981" stroke-width="1.2"/>
+    <path d="M 40 287 L 43 290 L 48.5 284" fill="none" stroke="#6ee7b7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="64" y="291" class="sans" font-size="12" font-weight="700" fill="#f8fafc">ChaCha20 + 512b 스폰지</text>
+    <text x="228" y="291" class="sans" font-size="11.5" fill="#cbd5e1">시드 노출 0바이트; 소스 공개에도 역산 불가</text>
+
+    <!-- Check Row 2 -->
+    <circle cx="44" cy="319" r="9" fill="#06392d" stroke="#10b981" stroke-width="1.2"/>
+    <path d="M 40 319 L 43 322 L 48.5 316" fill="none" stroke="#6ee7b7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="64" y="323" class="sans" font-size="12" font-weight="700" fill="#f8fafc">클러스터 내부 call 0개</text>
+    <text x="228" y="323" class="sans" font-size="11.5" fill="#cbd5e1">12..20 리프 인라이닝 + .pdata 브리지 은닉</text>
+
+    <!-- Check Row 3 -->
+    <circle cx="44" cy="351" r="9" fill="#06392d" stroke="#10b981" stroke-width="1.2"/>
+    <path d="M 40 351 L 43 354 L 48.5 348" fill="none" stroke="#6ee7b7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="64" y="355" class="sans" font-size="12" font-weight="700" fill="#f8fafc">W^X 스택 일시 복호화</text>
+    <text x="228" y="355" class="sans" font-size="11.5" fill="#cbd5e1">평문 S-Box 0 B; 스택 즉시 소거 + 암호 래칫</text>
+
+    <!-- Check Row 4 -->
+    <circle cx="44" cy="383" r="9" fill="#08324a" stroke="#38bdf8" stroke-width="1.2"/>
+    <path d="M 40 383 L 43 386 L 48.5 380" fill="none" stroke="#7dd3fc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="64" y="387" class="sans" font-size="12" font-weight="700" fill="#a7f3d0">동적 차분 프로빙 차단</text>
+    <text x="228" y="387" class="sans" font-size="11.5" fill="#bae6fd">64b hdr_route + pshufd 0xee 0건 + SIMD128</text>
+
+    <!-- ===== BLOCK 3: DEFENSE VERDICT CARD ===== -->
+    <rect x="18" y="424" width="522" height="142" rx="12" fill="url(#verdict-emerald)" stroke="#10b981" stroke-width="1.6"/>
+
+    <circle cx="38" cy="445" r="7.5" fill="#064e3b" stroke="#34d399" stroke-width="1.4"/>
+    <path d="M 34.5 445.2 L 37.2 447.8 L 41.8 442.5" fill="none" stroke="#a7f3d0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="54" y="449.5" class="sans" font-size="13" font-weight="800" fill="#6ee7b7">최종 결과: 외부 복구 0 / 45 (0%) · 100% 비트 일치</text>
+
+    <!-- 3-Column KPI Strip -->
+    <g transform="translate(32, 463)">
+      <rect x="0" y="0" width="156" height="52" rx="8" fill="#05191d" stroke="#134e4a"/>
+      <text x="78" y="25" text-anchor="middle" class="mono" font-size="20" font-weight="800" fill="#34d399">0 / 45</text>
+      <text x="78" y="42" text-anchor="middle" class="sans" font-size="10.5" fill="#a7f3d0">외부 공격 복원 (0%)</text>
+
+      <rect x="169" y="0" width="156" height="52" rx="8" fill="#061928" stroke="#164e63"/>
+      <text x="247" y="25" text-anchor="middle" class="mono" font-size="20" font-weight="800" fill="#38bdf8">100%</text>
+      <text x="247" y="42" text-anchor="middle" class="sans" font-size="10.5" fill="#bae6fd">출력 일치 (233,910쌍)</text>
+
+      <rect x="338" y="0" width="156" height="52" rx="8" fill="#05191d" stroke="#134e4a"/>
+      <text x="416" y="25" text-anchor="middle" class="mono" font-size="19" font-weight="800" fill="#6ee7b7">4,345x</text>
+      <text x="416" y="42" text-anchor="middle" class="sans" font-size="10.5" fill="#a7f3d0">최대 OSS 속도 향상</text>
+    </g>
+
+    <!-- Defense Shield Meter -->
+    <text x="32" y="535" class="sans" font-size="10.5" fill="#a7f3d0">외부 공격자 로직 복원율 (9사이클 누적)</text>
+    <text x="526" y="535" text-anchor="end" class="sans" font-size="10.5" font-weight="800" fill="#34d399">0% · 전수 차단</text>
+    <rect x="32" y="544" width="494" height="10" rx="5" fill="#062823" stroke="#10b981" stroke-width="1"/>
+    <g clip-path="url(#clip-defense-bar)">
+      <rect x="32" y="544" width="130" height="10" fill="url(#bar-scan)" class="scan-beam"/>
+    </g>
+  </g>
+
+  <!-- ==================== CENTER FLOATING VS EMBLEM ==================== -->
+  <g transform="translate(600, 344)">
+    <circle r="21" fill="#0a1020" stroke="#334155" stroke-width="1.8"/>
+    <circle r="17" fill="#0f172a" stroke="#1e293b" stroke-width="1"/>
+    <text x="0" y="5" text-anchor="middle" class="sans" font-size="12.5" font-weight="800" fill="#f8fafc" letter-spacing="0.8">VS</text>
+  </g>
+
+  <!-- ==================== BOTTOM FOOTER STRIP ==================== -->
+  <text x="600" y="683" text-anchor="middle" class="sans" font-size="11.5" fill="#64748b">
+    11개 언어 (C · C++ · Rust · Swift · Go · C# · Java · Kotlin · Python · JS · TS) + Cargo   |   45 / 45 USABLE   |   W^X 준수 (RWX / VirtualProtect 미사용)
+  </text>
+</svg>

@@ -20,6 +20,37 @@ Reverse-engineering tools like [REA](https://github.com/morluto/rea) let an agen
 
 **Agentic attack? Meet agentic defense — defense that grows stronger over time.** The ultimate goal of **ANTI-REA** is to **block everything that REA can analyze**. Ask your agent in plain language — *"Protect the core logic in my program so REA can't analyze or clone it"* — and the agent uses ANTI-REA's semantic scope analyzer (powered by [NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology)) to isolate secret/boundary functions without trapping inner hot loops, compiles them through the Pure-Rust polymorphic VM (`antirea-rust-v20`, `Format v20`), verifies bit-exact behavioral equivalence, and measures interactive and batch execution speed.
 
+<br />
+
+<div align="center">
+  <img src="../assets/before-after-antirea.svg" alt="Before ANTI-REA vs. After ANTI-REA: Autonomous AI Reverse Engineering Showcase" width="1200" />
+</div>
+
+<br />
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### Before ANTI-REA (Exposed)
+Autonomous AI agents (**REA + Ghidra + Unicorn**) decompile native and managed binaries into readable C-like pseudocode, dump plaintext `.rdata` keys & S-Boxes, flip license branches, and build a **1:1 working clone in seconds**.
+
+</td>
+<td width="33%" valign="top">
+
+### After ANTI-REA (`antirea-rust-v20`)
+Core logic is compiled into a **Kerckhoffs-safe Pure-Rust Polymorphic VM** (`ChaCha20` 20-round CSPRNG, shuffled `VmCtx`, `12..20` leaf clusters with `0` internal `call`s, `W^X` stack-wiped S-Box vault, live `.rdata` ratchet). Verified at **`0 / 45` (`0%`) recovery** across 9 external 5-PC fleet cycles.
+
+</td>
+<td width="33%" valign="top">
+
+### Bit-Exact & Fast by Design
+**NVIDIA Auto Ontology** keeps inner hot loops at native `-O2` while isolating secret/boundary functions — delivering **`32.4x`–`4,345.7x` OSS speedup** (`0.63–5.06 ms`), **`100%` bit-exact equivalence** (`233,910` pairs), and **`45 / 45` `USABLE`** across 11 languages + Cargo.
+
+</td>
+</tr>
+</table>
+
 ---
 
 ## What Gets Protected in Your Software?

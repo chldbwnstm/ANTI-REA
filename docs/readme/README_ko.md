@@ -20,6 +20,37 @@
 
 **에이전틱 공격? 그럼 우리는 에이전틱 방어 — 시간이 갈수록 점점 강해지는 방어입니다.** **ANTI-REA**의 목표는 **REA가 분석할 수 있는 모든 대상과 분석 방식을 결국 전부 막아내는 것**입니다. 내 에이전트에게 **"내 프로그램의 핵심 기능이 REA에게 분석·복제되지 않도록 보호해줘"**라고 자연어로 말하면, 에이전트가 [NVIDIA Auto Ontology](https://github.com/NVIDIA/auto-ontology) 기반 시맨틱 스코프 분석기로 내부 핫루프 성능 함정을 피해 비밀·경계 함수와 주변 단서만 정밀 선별하고, 순수 Rust 다형성 VM(`antirea-rust-v20`, `Format v20`)으로 가상화·난독화를 걸어 비트 단위 동작 일치와 응답 지연·배치 실행 속도를 검증해 알려줍니다.
 
+<br />
+
+<div align="center">
+  <img src="../assets/before-after-antirea-ko.svg" alt="Before ANTI-REA vs. After ANTI-REA: 자율형 AI 역공학 방어 비교" width="1200" />
+</div>
+
+<br />
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### Before ANTI-REA (원본 노출)
+자율형 AI 역공학 에이전트(**REA + Ghidra + Unicorn**)가 바이너리를 읽기 쉬운 C 의사코드로 디컴파일하고 `.rdata` 평문 키·S-Box를 추출해 라이선스 분기를 우회하며, **수 초 만에 1:1 복제본**을 만들어냅니다.
+
+</td>
+<td width="33%" valign="top">
+
+### After ANTI-REA (`antirea-rust-v20`)
+핵심 로직을 **케르크호프스 안전 순수 Rust 다형성 VM**(`ChaCha20` 20-라운드 CSPRNG, 셔플 `VmCtx`, 내부 `call` `0`개 `12..20` 리프 클러스터, `W^X` 스택 소거 S-Box 금고, 실시간 `.rdata` 래칫)으로 가상화합니다. 9사이클 연속 외부 5-PC 공격에서 **복구 `0 / 45` (`0%`)**를 검증했습니다.
+
+</td>
+<td width="33%" valign="top">
+
+### 비트 일치 & 네이티브급 속도
+**NVIDIA Auto Ontology**가 내부 핫루프는 네이티브 `-O2`로 유지하고 비밀·경계 함수만 정밀 격리해, 실전 오픈소스 **`32.4x`~`4,345.7x` 가속**(`0.63~5.06 ms`), **`100%` 비트 일치**(`233,910`쌍), 11개 언어 + Cargo **`45 / 45` `USABLE`**을 동시에 달성합니다.
+
+</td>
+</tr>
+</table>
+
 ---
 
 ## 사용자의 소프트웨어에서 무엇이 보호되나요?
