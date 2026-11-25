@@ -2,6 +2,14 @@
 
 # ANTI-REA
 
+<!-- gitreels:start -->
+<p align="center">
+  <a href="https://gitreels.com/chldbwnstm/ANTI-REA"><img src="https://gitreels.com/chldbwnstm/ANTI-REA.webp" alt="chldbwnstm/ANTI-REA in 15 seconds" width="100%"></a>
+  <br>
+  <a href="https://gitreels.com"><img src="https://gitreels.com/badge.svg" alt="Made with GitReels" height="24"></a>
+</p>
+<!-- gitreels:end -->
+
 ### One MCP for protecting binaries, applications, and core logic against REA.
 
 **Have a core feature you need to protect? Keep it from being analyzed or cloned, down to the binary level.**
